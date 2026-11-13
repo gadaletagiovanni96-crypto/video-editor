@@ -1,6 +1,6 @@
 'use strict';
 /*
- * Editor Video Semplice
+ * Editor Video
  * Tutto gira nel browser: anteprima su <canvas>, audio con Web Audio API,
  * esportazione con MediaRecorder (canvas + audio mixato).
  */
@@ -67,6 +67,7 @@ const settings = {
   fps: 30,
   fadeFromBlack: true,
   fadeToBlack: true,
+  photoFit: 'contain',
   photoDuration: 4,
   transition: 1,
   defaultAnim: 'random',
@@ -197,7 +198,7 @@ async function createImageClip(file) {
     duration: settings.photoDuration,
     transition: settings.transition,
     anim: settings.defaultAnim === 'random' ? randomAnim() : settings.defaultAnim,
-    fit: 'contain',
+    fit: settings.photoFit,
   };
 }
 
@@ -903,7 +904,8 @@ function buildProjectPanel() {
     ${rangeField('Intensità del movimento', 'animStrength', settings.animStrength, 0.25, 2.5, 0.05, 'x')}
     <p class="muted" style="font-size:12px;margin-top:-6px">1× = leggero (consigliato). Più basso = quasi fermo.</p>
     ${checkField('Movimento morbido (parte e si ferma dolcemente)', 'smoothAnim', settings.smoothAnim)}
-    <div class="btnrow"><button class="btn small" data-act="allContain">Mostra tutte le foto intere</button></div>
+    ${selectField('Adattamento delle foto allo schermo', 'photoFit', { contain: 'Mostra tutte le foto intere (bordi neri se servono)', cover: 'Riempi lo schermo (taglia i bordi)' }, settings.photoFit)}
+    <p class="muted" style="font-size:12px;margin-top:-6px">Vale per tutte le foto, anche quelle aggiunte dopo. Puoi comunque cambiarla per una singola foto.</p>
     <div class="section-title">Valori predefiniti per le nuove foto</div>
     ${rangeField('Durata foto', 'photoDuration', settings.photoDuration, 0.5, 30, 0.1)}
     ${rangeField('Dissolvenza tra le clip', 'transition', settings.transition, 0, 3, 0.1)}
@@ -913,10 +915,15 @@ function buildProjectPanel() {
     </div>
     <hr>
     <p class="empty-hint">Suggerimento: clicca una clip nella timeline per modificarla.
-      Scorciatoie: <b>spazio</b> = play/pausa, <b>Canc</b> = elimina la clip selezionata,
+      Scorciatoie: <b>spazio</b> = play/pausa, <b>rotellina</b> sulla timeline = scorri le clip (<b>Ctrl</b> + rotellina = zoom), <b>Canc</b> = elimina la clip selezionata,
       <b>← →</b> = sposta il cursore.</p>`;
   bindPanel(settings, k => {
     if (k === 'aspect' || k === 'quality') applyCanvasSize();
+    if (k === 'photoFit') {
+      clips.forEach(x => { if (x.type === 'image') x.fit = settings.photoFit; });
+      refresh();
+      toast(settings.photoFit === 'contain' ? 'Tutte le foto ora sono mostrate intere' : 'Tutte le foto ora riempiono lo schermo');
+    }
     requestRender();
   });
 }
@@ -988,7 +995,6 @@ const actions = {
     });
     refresh(); buildPanel(); toast('Impostazioni applicate a tutte le clip');
   },
-  allContain() { clips.forEach(x => { if (x.type === 'image') x.fit = 'contain'; }); refresh(); toast('Tutte le foto ora sono mostrate intere'); },
   musicToStart() { const m = selectedItem(); m.start = 0; refresh(); buildPanel(); },
   musicToCursor() { const m = selectedItem(); m.start = Math.round(player.t * 10) / 10; refresh(); buildPanel(); },
 };
@@ -1554,6 +1560,23 @@ function setupUI() {
   const sb = $('#seekBar');
   sb.addEventListener('input', () => { seekDragging = true; seek(sb.value / 1000 * total); });
   sb.addEventListener('change', () => { seekDragging = false; });
+
+  // Rotellina del mouse sulla timeline: scorre le clip in orizzontale
+  // (Ctrl + rotellina = zoom)
+  $('#tlScroll').addEventListener('wheel', e => {
+    const sc = $('#tlScroll');
+    if (e.ctrlKey) {
+      e.preventDefault();
+      const z = $('#zoom');
+      z.value = clamp(Number(z.value) * (e.deltaY < 0 ? 1.15 : 1 / 1.15), Number(z.min), Number(z.max));
+      z.dispatchEvent(new Event('input'));
+      return;
+    }
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; // touchpad: scorrimento orizzontale nativo
+    e.preventDefault();
+    const unit = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? sc.clientWidth : 1;
+    sc.scrollLeft += e.deltaY * unit;
+  }, { passive: false });
 
   $('#zoom').addEventListener('input', e => {
     const sc = $('#tlScroll');

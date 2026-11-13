@@ -1,4 +1,4 @@
-# 🎬 Editor Video Semplice
+# 🎬 Editor Video
 
 Un editor di foto e video che funziona **interamente nel browser**: niente da installare e nessun file viene caricato su internet.
 
@@ -24,7 +24,7 @@ In alternativa puoi pubblicarlo gratis con GitHub Pages (Settings → Pages → 
 | Formato (16:9, verticale 9:16, 1:1, 4:3), risoluzione, fps | **⚙ Progetto** |
 | Esportare | **⬇ Esporta video** |
 
-Scorciatoie: `spazio` play/pausa · `Canc` elimina la clip selezionata · `←` `→` sposta il cursore (con `Shift` di 1 secondo).
+Scorciatoie: `spazio` play/pausa · rotellina del mouse sulla timeline = scorri le clip (`Ctrl` + rotellina = zoom) · `Canc` elimina la clip selezionata · `←` `→` sposta il cursore (con `Shift` di 1 secondo).
 
 ## Note sull'esportazione
 
