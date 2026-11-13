@@ -55,7 +55,6 @@ const ANIMATIONS = {
   zoomOutBL: { label: 'Allontanamento da basso-sx',  from: { s: .97, dx: -.015, dy: .015 },  to: { s: .9,  dx: .02,   dy: -.02 } },
 };
 const MOVING_ANIMS = Object.keys(ANIMATIONS).filter(k => k !== 'none');
-const APP_VERSION = '1.5';
 const randomAnim = () => MOVING_ANIMS[Math.floor(Math.random() * MOVING_ANIMS.length)];
 const easeInOut = p => 0.5 - Math.cos(Math.PI * p) / 2;
 
@@ -754,11 +753,6 @@ function selectField(label, k, options, val) {
   const opts = Object.entries(options).map(([v, l]) => `<option value="${v}"${String(v) === String(val) ? ' selected' : ''}>${esc(l)}</option>`).join('');
   return `<label class="field"><span>${label}</span><select data-k="${k}">${opts}</select></label>`;
 }
-function radioField(label, k, options, val) {
-  const opts = Object.entries(options).map(([v, l]) =>
-    `<label class="check radio"><input type="radio" name="rf-${k}" data-k="${k}" value="${v}"${String(v) === String(val) ? ' checked' : ''}> ${esc(l)}</label>`).join('');
-  return `<div class="field"><span>${label}</span>${opts}</div>`;
-}
 function checkField(label, k, val) {
   return `<label class="check"><input type="checkbox" data-k="${k}"${val ? ' checked' : ''}> ${label}</label>`;
 }
@@ -773,16 +767,14 @@ function syncPanel(obj) {
   panel.querySelectorAll('[data-k]').forEach(inp => {
     const v = obj[inp.dataset.k];
     if (inp.type === 'checkbox') inp.checked = !!v;
-    else if (inp.type === 'radio') inp.checked = String(inp.value) === String(v);
     else if (String(inp.value) !== String(v)) inp.value = v;
   });
 }
 function bindPanel(obj, onChange) {
   panel.querySelectorAll('[data-k]').forEach(inp => {
     const k = inp.dataset.k;
-    const ev = inp.type === 'checkbox' || inp.type === 'radio' || inp.tagName === 'SELECT' ? 'change' : 'input';
+    const ev = inp.type === 'checkbox' || inp.tagName === 'SELECT' ? 'change' : 'input';
     inp.addEventListener(ev, () => {
-      if (inp.type === 'radio' && !inp.checked) return;
       let v;
       if (inp.type === 'checkbox') v = inp.checked;
       else if (inp.type === 'range' || inp.type === 'number') v = parseFloat(inp.value);
@@ -923,10 +915,9 @@ function buildProjectPanel() {
     ${rangeField('Intensità del movimento', 'animStrength', settings.animStrength, 0.25, 2.5, 0.05, 'x')}
     <p class="muted" style="font-size:12px;margin-top:-6px">1× = leggero (consigliato). Più basso = quasi fermo.</p>
     ${checkField('Movimento morbido (parte e si ferma dolcemente)', 'smoothAnim', settings.smoothAnim)}
-    <div class="section-title">Foto intere o a tutto schermo</div>
-    ${radioField('Adattamento delle foto allo schermo', 'photoFit', {
+    ${selectField('Adattamento delle foto allo schermo', 'photoFit', {
       contain: 'Mostra tutte le foto intere (bordi neri se servono)',
-      coverLandscape: 'Riempi lo schermo solo con le foto orizzontali (le verticali restano sempre intere)',
+      coverLandscape: 'Riempi lo schermo solo con le foto orizzontali (le verticali restano intere)',
       cover: 'Riempi lo schermo con tutte le foto (taglia i bordi)',
     }, settings.photoFit)}
     <p class="muted" style="font-size:12px;margin-top:-6px">Vale per tutte le foto, anche quelle aggiunte dopo. Puoi comunque cambiarla per una singola foto.</p>
@@ -940,8 +931,7 @@ function buildProjectPanel() {
     <hr>
     <p class="empty-hint">Suggerimento: clicca una clip nella timeline per modificarla.
       Scorciatoie: <b>spazio</b> = play/pausa, <b>rotellina</b> sulla timeline = scorri le clip (<b>Ctrl</b> + rotellina = zoom), <b>Canc</b> = elimina la clip selezionata,
-      <b>← →</b> = sposta il cursore.</p>
-    <p class="muted" style="font-size:11px;margin-top:14px">Editor Video · versione ${APP_VERSION}</p>`;
+      <b>← →</b> = sposta il cursore.</p>`;
   bindPanel(settings, k => {
     if (k === 'aspect' || k === 'quality') applyCanvasSize();
     if (k === 'photoFit') {

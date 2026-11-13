@@ -87,9 +87,6 @@ body {
 .field .row { display: flex; justify-content: space-between; align-items: baseline; }
 .field output { font-variant-numeric: tabular-nums; font-size: 12px; }
 .check { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer; }
-.check.radio { align-items: flex-start; margin: 4px 0 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg3); font-size: 13px; }
-.check.radio:has(input:checked) { border-color: var(--accent); }
-.check.radio input { margin-top: 3px; }
 select, input[type=number] {
   background: var(--bg3); color: var(--text); border: 1px solid var(--line);
   border-radius: 6px; padding: 6px 8px; font: inherit;
