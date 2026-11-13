@@ -359,7 +359,7 @@ function syncMedia(hard) {
   }
 }
 
-function drawSource(src, sw, sh, fit, kb) {
+function drawSource(src, sw, sh, fit, kb, rot = 0) {
   const W = canvas.width, H = canvas.height;
   const k = fit === 'cover' ? Math.max(W / sw, H / sh) : Math.min(W / sw, H / sh);
   const dw = sw * k * kb.s, dh = sh * k * kb.s;
@@ -369,7 +369,16 @@ function drawSource(src, sw, sh, fit, kb) {
     const pos = (avail - size) / 2 + d * avail;
     return avail >= size ? clamp(pos, 0, avail - size) : clamp(pos, avail - size, 0);
   };
-  g.drawImage(src, fitPos(W, dw, kb.dx), fitPos(H, dh, kb.dy), dw, dh);
+  const x = fitPos(W, dw, kb.dx), y = fitPos(H, dh, kb.dy);
+  if (!rot) { g.drawImage(src, x, y, dw, dh); return; }
+  // fotogrammi decodificati di video girati (es. telefono in verticale)
+  const side = rot === 90 || rot === 270;
+  g.save();
+  g.translate(x + dw / 2, y + dh / 2);
+  g.rotate(rot * Math.PI / 180);
+  const fw = side ? dh : dw, fh = side ? dw : dh;
+  g.drawImage(src, -fw / 2, -fh / 2, fw, fh);
+  g.restore();
 }
 
 // Calcola zoom/posizione della foto al punto p (0..1) dell'animazione
@@ -422,8 +431,15 @@ function render() {
       let p = clamp((t - L.start) / L.dur, 0, 1);
       if (settings.smoothAnim) p = easeInOut(p);
       drawSource(c.src, c.w, c.h, c.fit, photoMotion(c, p));
-    } else if (c.el.readyState >= 2) {
-      drawSource(c.el, c.el.videoWidth, c.el.videoHeight, c.fit, { s: 1, dx: 0, dy: 0 });
+    } else {
+      const ef = exportFrames.get(c.id);
+      if (ef && ef.frame) {
+        const side = ef.rot === 90 || ef.rot === 270;
+        const fw = ef.frame.displayWidth, fh = ef.frame.displayHeight;
+        drawSource(ef.frame, side ? fh : fw, side ? fw : fh, c.fit, { s: 1, dx: 0, dy: 0 }, ef.rot);
+      } else if (c.el.readyState >= 2) {
+        drawSource(c.el, c.el.videoWidth, c.el.videoHeight, c.fit, { s: 1, dx: 0, dy: 0 });
+      }
     }
   });
   g.globalAlpha = 1;
@@ -989,7 +1005,7 @@ function move(dir) {
 /* =========================================================
  * Esportazione
  * ======================================================= */
-const exp = { running: false, rec: null, chunks: [], canceled: false, mime: '', url: null };
+const exp = { mode: 'fast', running: false, rec: null, chunks: [], canceled: false, mime: '', url: null };
 
 const FORMATS = [
   ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'MP4 (H.264 + AAC) – consigliato', 'mp4'],
@@ -1015,11 +1031,23 @@ function openExport() {
   if (loadingCount > 0) return toast('Attendi la fine del caricamento dei file');
   pause();
   const fmts = supportedFormats();
-  if (!fmts.length) return toast('Questo browser non supporta la registrazione video. Usa Chrome, Edge o Firefox aggiornati.', 6000);
+  const fast = fastSupported();
+  if (!fmts.length && !fast) return toast('Questo browser non supporta l\'esportazione video. Usa Chrome o Edge aggiornati.', 6000);
   $('#expFormat').innerHTML = fmts.map(([m, l]) => `<option value="${m}">${esc(l)}</option>`).join('');
+  const modeSel = $('#expMode');
+  modeSel.querySelector('[value=fast]').disabled = !fast;
+  modeSel.querySelector('[value=realtime]').disabled = !fmts.length;
+  modeSel.value = fast ? 'fast' : 'realtime';
+  updateExportMode();
   $('#expInfo').textContent = `Risoluzione ${canvas.width}×${canvas.height} · ${settings.fps} fps · durata ${fmtTime(total)}`;
   showExportStep('setup');
   $('#exportDlg').showModal();
+}
+function updateExportMode() {
+  const rt = $('#expMode').value === 'realtime';
+  $('#expFormatField').hidden = !rt;
+  $('#expNoteRT').hidden = !rt;
+  $('#expNoteFast').hidden = rt;
 }
 function showExportStep(step) {
   $('#exportSetup').hidden = step !== 'setup';
@@ -1036,7 +1064,30 @@ async function waitVideosReady(t) {
   }
 }
 
-async function startExport() {
+function startExport() {
+  exp.mode = $('#expMode').value;
+  return exp.mode === 'fast' ? fastExport() : realtimeExport();
+}
+
+function exportFileName(ext) {
+  const d = new Date();
+  const p2 = n => String(n).padStart(2, '0');
+  return `video_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}.${ext}`;
+}
+
+function deliverFile(blob, ext, extra = '') {
+  if (exp.url) URL.revokeObjectURL(exp.url);
+  exp.url = URL.createObjectURL(blob);
+  const name = exportFileName(ext);
+  const a = $('#expDownload');
+  a.href = exp.url;
+  a.download = name;
+  $('#expResult').textContent = `${name} · ${(blob.size / 1048576).toFixed(1)} MB${extra}`;
+  showExportStep('done');
+  a.click(); // download automatico
+}
+
+async function realtimeExport() {
   ensureAudio();
   await actx.resume();
   exp.mime = $('#expFormat').value;
@@ -1075,17 +1126,7 @@ async function startExport() {
     exp.running = false;
     if (exp.canceled) return;
     const ext = FORMATS.find(f => f[0] === exp.mime)?.[2] || 'webm';
-    const blob = new Blob(exp.chunks, { type: exp.mime.split(';')[0] });
-    if (exp.url) URL.revokeObjectURL(exp.url);
-    exp.url = URL.createObjectURL(blob);
-    const d = new Date();
-    const name = `video_${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}_${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}.${ext}`;
-    const a = $('#expDownload');
-    a.href = exp.url;
-    a.download = name;
-    $('#expResult').textContent = `${name} · ${(blob.size / 1048576).toFixed(1)} MB`;
-    showExportStep('done');
-    a.click(); // download automatico
+    deliverFile(new Blob(exp.chunks, { type: exp.mime.split(';')[0] }), ext);
   };
   exp.running = true;
   rec.start(1000);
@@ -1097,8 +1138,399 @@ async function finishExport() {
   if (exp.rec && exp.rec.state !== 'inactive') exp.rec.stop();
 }
 
+/* ---------------------------------------------------------
+ * Esportazione veloce: i fotogrammi vengono calcolati uno per
+ * uno e codificati con WebCodecs, l'audio è mixato "offline".
+ * Non serve aspettare la durata reale del video.
+ * ------------------------------------------------------- */
+const AUDIO_RATE = 48000;
+const fastSupported = () =>
+  'VideoEncoder' in window && 'VideoFrame' in window && 'OfflineAudioContext' in window && !!window.Mp4Muxer;
+
+async function pickVideoConfig(W, H, fps, bitrate) {
+  const codecs = ['avc1.640034', 'avc1.64002A', 'avc1.640028', 'avc1.4D0034', 'avc1.4D0028', 'avc1.42003E', 'avc1.42001F'];
+  for (const codec of codecs) {
+    const cfg = { codec, width: W, height: H, bitrate, framerate: fps, avc: { format: 'avc' } };
+    try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch { /* prova il prossimo */ }
+  }
+  return null;
+}
+
+async function pickAudioConfig() {
+  if (!('AudioEncoder' in window)) return null;
+  for (const [codec, mux] of [['mp4a.40.2', 'aac'], ['opus', 'opus']]) {
+    const cfg = { codec, sampleRate: AUDIO_RATE, numberOfChannels: 2, bitrate: 192000 };
+    try { if ((await AudioEncoder.isConfigSupported(cfg)).supported) return { cfg, mux }; } catch { /* prova il prossimo */ }
+  }
+  return null;
+}
+
+const audioCache = new Map(); // url -> AudioBuffer | null
+async function decodeAudio(url) {
+  if (audioCache.has(url)) return audioCache.get(url);
+  let buf = null;
+  try {
+    const data = await (await fetch(url)).arrayBuffer();
+    const dc = new OfflineAudioContext(2, 1, AUDIO_RATE);
+    buf = await dc.decodeAudioData(data);
+  } catch { buf = null; } // video senza audio
+  audioCache.set(url, buf);
+  return buf;
+}
+
+// Crea la colonna sonora completa (audio dei video + musica + dissolvenze)
+async function renderAudioMix() {
+  const oc = new OfflineAudioContext(2, Math.max(1, Math.ceil(total * AUDIO_RATE)), AUDIO_RATE);
+  const mst = oc.createGain();
+  mst.connect(oc.destination);
+  const fl = Math.min(1, total / 4);
+  mst.gain.setValueAtTime(settings.fadeFromBlack ? 0 : 1, 0);
+  if (settings.fadeFromBlack) mst.gain.linearRampToValueAtTime(1, fl);
+  if (settings.fadeToBlack) { mst.gain.setValueAtTime(1, total - fl); mst.gain.linearRampToValueAtTime(0, total); }
+
+  for (const [i, L] of layout.entries()) {
+    const c = L.clip;
+    if (c.type !== 'video' || c.muted || c.volume <= 0) continue;
+    const buf = await decodeAudio(c.url);
+    if (!buf) continue;
+    const src = oc.createBufferSource();
+    src.buffer = buf;
+    const gn = oc.createGain();
+    src.connect(gn).connect(mst);
+    const v = c.volume, a = L.start, b = L.start + L.dur, next = layout[i + 1];
+    gn.gain.setValueAtTime(L.tr > 0 ? 0 : v, a);
+    if (L.tr > 0) gn.gain.linearRampToValueAtTime(v, a + L.tr);
+    if (next && next.tr > 0) { gn.gain.setValueAtTime(v, next.start); gn.gain.linearRampToValueAtTime(0, b); }
+    src.start(a, c.in, L.dur);
+  }
+
+  for (const m of music) {
+    const len = musicLen(m);
+    if (len <= 0) continue;
+    const buf = await decodeAudio(m.url);
+    if (!buf) continue;
+    const src = oc.createBufferSource();
+    src.buffer = buf;
+    const gn = oc.createGain();
+    src.connect(gn).connect(mst);
+    const v = m.volume, a = m.start, b = m.start + len;
+    const fi = Math.min(m.fadeIn, len), fo = Math.min(m.fadeOut, len);
+    gn.gain.setValueAtTime(fi > 0 ? 0 : v, a);
+    if (fi > 0) gn.gain.linearRampToValueAtTime(v, a + fi);
+    if (fo > 0) { gn.gain.setValueAtTime(v, Math.max(a + fi, b - fo)); gn.gain.linearRampToValueAtTime(0, b); }
+    src.start(a, m.in, len);
+  }
+  return oc.startRendering();
+}
+
+function encodeAudioBuffer(buffer, encoder) {
+  const N = buffer.length, CH = 4096;
+  const L = buffer.getChannelData(0), R = buffer.getChannelData(buffer.numberOfChannels > 1 ? 1 : 0);
+  for (let off = 0; off < N; off += CH) {
+    const n = Math.min(CH, N - off);
+    const data = new Float32Array(n * 2);
+    data.set(L.subarray(off, off + n), 0);
+    data.set(R.subarray(off, off + n), n);
+    const ad = new AudioData({
+      format: 'f32-planar', sampleRate: buffer.sampleRate, numberOfFrames: n,
+      numberOfChannels: 2, timestamp: Math.round(off / buffer.sampleRate * 1e6), data,
+    });
+    encoder.encode(ad);
+    ad.close();
+  }
+}
+
+function seekExact(v, t) {
+  return new Promise(resolve => {
+    let done = false;
+    const fin = () => { if (done) return; done = true; v.removeEventListener('seeked', fin); resolve(); };
+    v.addEventListener('seeked', fin);
+    v.currentTime = t;
+    setTimeout(fin, 5000);
+  });
+}
+
+/* ---------------------------------------------------------
+ * Lettura veloce dei fotogrammi dei video (MP4/MOV) con
+ * WebCodecs: il file viene decodificato in sequenza invece
+ * di "saltare" a ogni fotogramma con il lettore video.
+ * ------------------------------------------------------- */
+const exportFrames = new Map(); // clip.id -> { frame, rot }
+
+// Legge solo le parti del file che descrivono il contenuto (tutto tranne 'mdat')
+async function readMp4Info(blob) {
+  if (!window.MP4Box) return null;
+  const file = MP4Box.createFile(false);
+  let info = null, error = null;
+  file.onReady = i => { info = i; };
+  file.onError = e => { error = e; };
+  let pos = 0;
+  while (pos + 8 <= blob.size && !info && !error) {
+    const head = new DataView(await blob.slice(pos, pos + 16).arrayBuffer());
+    let size = head.getUint32(0);
+    const type = String.fromCharCode(head.getUint8(4), head.getUint8(5), head.getUint8(6), head.getUint8(7));
+    if (size === 1) size = Number(head.getBigUint64(8));
+    else if (size === 0) size = blob.size - pos;
+    if (size < 8) break;
+    // del blocco dati 'mdat' basta l'intestazione: il parser lo salta
+    const len = type === 'mdat' ? (head.getUint32(0) === 1 ? 16 : 8) : size;
+    if (len > 200 * 1048576) return null; // struttura anomala
+    const buf = await blob.slice(pos, pos + len).arrayBuffer();
+    buf.fileStart = pos;
+    file.appendBuffer(buf);
+    pos += size;
+  }
+  file.flush();
+  if (!info) return null;
+  return { file, info };
+}
+
+function codecDescription(file, trackId) {
+  const trak = file.getTrackById(trackId);
+  for (const entry of trak.mdia.minf.stbl.stsd.entries) {
+    const box = entry.avcC || entry.hvcC || entry.vpcC || entry.av1C;
+    if (box) {
+      const stream = new DataStream(undefined, 0, DataStream.BIG_ENDIAN);
+      box.write(stream);
+      return new Uint8Array(stream.buffer, 8); // senza l'intestazione del box
+    }
+  }
+  return undefined;
+}
+
+class VideoFrameReader {
+  static async open(clip) {
+    if (!('VideoDecoder' in window)) return null;
+    try {
+      const blob = await (await fetch(clip.url)).blob();
+      const parsed = await readMp4Info(blob);
+      if (!parsed) return null;
+      const track = parsed.info.videoTracks[0];
+      if (!track) return null;
+      const config = {
+        codec: track.codec,
+        codedWidth: track.video.width,
+        codedHeight: track.video.height,
+        description: codecDescription(parsed.file, track.id),
+      };
+      const sup = await VideoDecoder.isConfigSupported(config);
+      if (!sup.supported) return null;
+      const samples = parsed.file.getTrackSamplesInfo(track.id);
+      if (!samples || !samples.length) return null;
+      const m = track.matrix || [65536, 0, 0, 0, 65536, 0, 0, 0, 0x40000000];
+      const rot = ((Math.round(Math.atan2(m[1], m[0]) * 180 / Math.PI / 90) * 90) % 360 + 360) % 360;
+      return new VideoFrameReader(clip, blob, samples, config, rot);
+    } catch (err) {
+      console.warn('Lettura veloce non disponibile per', clip.name, err);
+      return null;
+    }
+  }
+
+  constructor(clip, blob, samples, config, rot) {
+    this.blob = blob;
+    this.rot = rot;
+    this.frames = [];
+    this.ended = false;
+    this.error = null;
+    const minCts = Math.min(...samples.slice(0, 64).map(s => s.cts));
+    this.samples = samples.map(s => ({
+      offset: s.offset, size: s.size, key: s.is_sync,
+      t: (s.cts - minCts) / s.timescale,
+      dur: s.duration / s.timescale,
+    }));
+    // parte dall'ultimo fotogramma chiave prima del punto di inizio
+    let start = 0;
+    for (let i = 0; i < this.samples.length; i++) {
+      if (this.samples[i].key && this.samples[i].t <= clip.in + 1e-3) start = i;
+    }
+    this.next = start;
+    this.limit = clip.out + 1;
+    this.decoder = new VideoDecoder({
+      output: f => { this.frames.push(f); this.frames.sort((a, b) => a.timestamp - b.timestamp); },
+      error: e => { this.error = e; },
+    });
+    this.decoder.configure(config);
+  }
+
+  async feed() {
+    const batch = [];
+    while (batch.length < 10 && this.next < this.samples.length) {
+      const s = this.samples[this.next];
+      if (s.t > this.limit && s.key) break;
+      batch.push(s);
+      this.next++;
+    }
+    if (!batch.length) {
+      if (!this.ended) { await this.decoder.flush(); this.ended = true; }
+      return;
+    }
+    const datas = await Promise.all(batch.map(s => this.blob.slice(s.offset, s.offset + s.size).arrayBuffer()));
+    batch.forEach((s, i) => this.decoder.decode(new EncodedVideoChunk({
+      type: s.key ? 'key' : 'delta',
+      timestamp: Math.round(s.t * 1e6),
+      duration: Math.round(s.dur * 1e6),
+      data: datas[i],
+    })));
+    while (this.decoder.decodeQueueSize > 2 && !this.error) await sleep(1);
+  }
+
+  // Restituisce il fotogramma visibile al tempo t (secondi del file originale)
+  async frameAt(t) {
+    const tus = t * 1e6 + 500;
+    let guard = 0;
+    while (!this.ended) {
+      if (this.error) throw this.error;
+      const last = this.frames[this.frames.length - 1];
+      if (last && last.timestamp > tus) break;
+      // tiene in memoria pochi fotogrammi: libera quelli già superati
+      while (this.frames.length > 1 && this.frames[1].timestamp <= tus) this.frames.shift().close();
+      await this.feed();
+      if (++guard > 100000) break;
+    }
+    while (this.frames.length > 1 && this.frames[1].timestamp <= tus) this.frames.shift().close();
+    return this.frames[0] || null;
+  }
+
+  close() {
+    for (const f of this.frames) f.close();
+    this.frames = [];
+    try { if (this.decoder.state !== 'closed') this.decoder.close(); } catch { /* ignore */ }
+  }
+}
+
+const frameReaders = new Map(); // clip.id -> VideoFrameReader | null (null = usa il lettore video)
+const finishedReaders = new Set();
+
+async function prepareFramesAt(t) {
+  const seeks = [];
+  for (const [i, L] of layout.entries()) {
+    const c = L.clip;
+    if (c.type !== 'video') continue;
+    if (!isActive(L, i, t)) {
+      if (t > L.start + L.dur && frameReaders.get(c.id)) {
+        frameReaders.get(c.id).close();
+        frameReaders.set(c.id, null);
+        finishedReaders.add(c.id);
+        exportFrames.delete(c.id);
+      }
+      continue;
+    }
+    const local = Math.min(c.in + clamp(t - L.start, 0, L.dur), c.srcDuration - 0.001);
+    if (!frameReaders.has(c.id) && !finishedReaders.has(c.id)) frameReaders.set(c.id, await VideoFrameReader.open(c));
+    const reader = frameReaders.get(c.id);
+    if (reader) {
+      const frame = await reader.frameAt(local);
+      exportFrames.set(c.id, { frame, rot: reader.rot });
+      if (frame) continue;
+      exportFrames.delete(c.id);
+    }
+    // metodo di riserva: posiziona il lettore video
+    const v = c.el;
+    if (!v.paused) v.pause();
+    if (Math.abs(v.currentTime - local) < 1e-4 && !v.seeking && v.readyState >= 2) continue;
+    seeks.push(seekExact(v, local));
+  }
+  await Promise.all(seeks);
+}
+
+function closeFrameReaders() {
+  for (const r of frameReaders.values()) if (r) r.close();
+  frameReaders.clear();
+  finishedReaders.clear();
+  exportFrames.clear();
+}
+
+// Cede il controllo al browser senza i rallentamenti di setTimeout
+const yieldUI = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
+
+async function fastExport() {
+  const status = txt => { $('#expStatus').textContent = txt; };
+  exp.canceled = false;
+  exp.running = true;
+  showExportStep('run');
+  $('#expProgress').value = 0;
+  stopPlayback();
+  select(null);
+
+  const W = canvas.width, H = canvas.height, fps = settings.fps;
+  let venc = null, aenc = null;
+  try {
+    status('Preparazione…');
+    const vcfg = await pickVideoConfig(W, H, fps, Number($('#expBitrate').value));
+    if (!vcfg) throw new Error('il browser non sa codificare video H.264');
+    const acfg = await pickAudioConfig();
+
+    status('Preparazione audio…');
+    const hasAudio = music.length > 0 || clips.some(c => c.type === 'video' && !c.muted);
+    const mix = acfg && hasAudio ? await renderAudioMix() : null;
+    if (exp.canceled) throw new Error('canceled');
+
+    const muxer = new Mp4Muxer.Muxer({
+      target: new Mp4Muxer.ArrayBufferTarget(),
+      video: { codec: 'avc', width: W, height: H, frameRate: fps },
+      audio: mix ? { codec: acfg.mux, numberOfChannels: 2, sampleRate: AUDIO_RATE } : undefined,
+      fastStart: 'in-memory',
+      firstTimestampBehavior: 'offset',
+    });
+    let encErr = null;
+    venc = new VideoEncoder({ output: (ch, meta) => muxer.addVideoChunk(ch, meta), error: e => { encErr = e; } });
+    venc.configure(vcfg);
+    if (mix) {
+      aenc = new AudioEncoder({ output: (ch, meta) => muxer.addAudioChunk(ch, meta), error: e => { encErr = e; } });
+      aenc.configure(acfg.cfg);
+      encodeAudioBuffer(mix, aenc);
+    }
+
+    const N = Math.max(1, Math.round(total * fps));
+    const t0 = performance.now();
+    for (let i = 0; i < N; i++) {
+      if (exp.canceled) throw new Error('canceled');
+      if (encErr) throw encErr;
+      player.t = Math.min(i / fps, total);
+      await prepareFramesAt(player.t);
+      render();
+      const frame = new VideoFrame(canvas, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      venc.encode(frame, { keyFrame: i % (fps * 2) === 0 });
+      frame.close();
+      while (venc.encodeQueueSize > 6) await sleep(1);
+      if (i % 5 === 0) {
+        const done = (i + 1) / N;
+        const elapsed = (performance.now() - t0) / 1000;
+        const speed = elapsed > 0.5 ? ` · ${((i + 1) / fps / elapsed).toFixed(1)}× più veloce del tempo reale` : '';
+        $('#expProgress').value = done;
+        status(`Creazione video… ${Math.round(done * 100)}%${speed}`);
+        await yieldUI();
+      }
+    }
+    status('Finalizzazione…');
+    await venc.flush();
+    if (aenc) await aenc.flush();
+    if (encErr) throw encErr;
+    muxer.finalize();
+    const secs = (performance.now() - t0) / 1000;
+    exp.running = false;
+    deliverFile(new Blob([muxer.target.buffer], { type: 'video/mp4' }), 'mp4', ` · creato in ${secs.toFixed(0)} s`);
+  } catch (err) {
+    exp.running = false;
+    if (err.message === 'canceled') {
+      $('#exportDlg').close();
+      toast('Esportazione interrotta');
+    } else {
+      console.error(err);
+      $('#exportDlg').close();
+      toast(`Esportazione veloce non riuscita (${err.message}). Prova la modalità "In tempo reale".`, 8000);
+    }
+  } finally {
+    try { if (venc && venc.state !== 'closed') venc.close(); } catch { /* ignore */ }
+    try { if (aenc && aenc.state !== 'closed') aenc.close(); } catch { /* ignore */ }
+    closeFrameReaders();
+    seek(0);
+  }
+}
+
 function abortExport() {
   exp.canceled = true;
+  if (exp.mode === 'fast') { $('#expStatus').textContent = 'Interruzione…'; return; }
   exp.running = false;
   pause();
   if (exp.rec && exp.rec.state !== 'inactive') exp.rec.stop();
@@ -1133,12 +1565,13 @@ function setupUI() {
 
   // Esportazione
   $('#expStart').onclick = startExport;
+  $('#expMode').onchange = updateExportMode;
   $('#expCancelSetup').onclick = () => $('#exportDlg').close();
   $('#expAbort').onclick = abortExport;
   $('#expClose').onclick = () => $('#exportDlg').close();
   $('#exportDlg').addEventListener('cancel', e => { if (exp.running) e.preventDefault(); });
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && exp.running) {
+    if (document.hidden && exp.running && exp.mode === 'realtime') {
       $('#expStatus').textContent = '⚠ Scheda nascosta: torna qui, altrimenti il video si blocca!';
     }
   });

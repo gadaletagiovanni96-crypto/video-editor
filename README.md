@@ -28,12 +28,14 @@ Scorciatoie: `spazio` play/pausa · `Canc` elimina la clip selezionata · `←` 
 
 ## Note sull'esportazione
 
-- L'esportazione avviene **in tempo reale**: un video di 3 minuti richiede circa 3 minuti. Tieni la scheda aperta e visibile durante l'esportazione.
+- **Modalità veloce (predefinita):** il video viene calcolato fotogramma per fotogramma e codificato direttamente in MP4 (WebCodecs), senza aspettare la durata reale. Le foto sono molto più veloci del tempo reale; i video MP4/MOV vengono letti direttamente dal file. Serve Chrome o Edge aggiornati.
+- **Modalità in tempo reale:** registra l'anteprima mentre scorre (un video di 3 minuti richiede circa 3 minuti). Resta disponibile come alternativa se la modalità veloce non funziona su un certo computer o con un certo file.
+- I video in formati diversi da MP4/MOV (es. WebM) vengono comunque esportati, ma più lentamente.
 - Il progetto non viene salvato: se chiudi la pagina devi ricominciare.
-- I formati video supportati in ingresso dipendono dal browser (MP4/H.264, WebM e MOV in genere funzionano).
 
 ## File
 
 - `index.html` – struttura della pagina
 - `style.css` – grafica
 - `app.js` – anteprima, timeline, animazioni, audio ed esportazione
+- `lib/` – librerie esterne incluse: [mp4-muxer](https://github.com/Vanilagy/mp4-muxer) (MIT) per creare il file MP4 e [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3) per leggere i video MP4/MOV

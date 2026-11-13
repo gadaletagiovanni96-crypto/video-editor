@@ -65,7 +65,13 @@
   <dialog id="exportDlg" class="dialog">
     <h2>Esporta video</h2>
     <div id="exportSetup">
-      <label class="field"><span>Formato file</span><select id="expFormat"></select></label>
+      <label class="field"><span>Modalità</span>
+        <select id="expMode">
+          <option value="fast">Veloce (consigliata)</option>
+          <option value="realtime">In tempo reale (compatibilità)</option>
+        </select>
+      </label>
+      <label class="field" id="expFormatField"><span>Formato file</span><select id="expFormat"></select></label>
       <label class="field"><span>Qualità</span>
         <select id="expBitrate">
           <option value="4000000">Normale (4 Mbit/s)</option>
@@ -74,7 +80,9 @@
         </select>
       </label>
       <p id="expInfo" class="muted"></p>
-      <p class="note">L'esportazione avviene in tempo reale (un video da 2 minuti richiede circa 2 minuti).
+      <p class="note" id="expNoteFast">Il video viene calcolato fotogramma per fotogramma: le parti con le foto
+        vanno molto più veloci del tempo reale. Il file creato è un <b>MP4</b>.</p>
+      <p class="note" id="expNoteRT" hidden>L'esportazione avviene in tempo reale (un video da 2 minuti richiede circa 2 minuti).
         Tieni questa scheda <b>aperta e in primo piano</b> finché non è finita.</p>
       <div class="dlg-actions">
         <button id="expCancelSetup" class="btn ghost">Annulla</button>
@@ -96,6 +104,8 @@
     </div>
   </dialog>
 
+  <script src="lib/mp4-muxer.js"></script>
+  <script src="lib/mp4box.all.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
