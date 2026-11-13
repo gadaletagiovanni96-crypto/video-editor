@@ -1172,10 +1172,17 @@ const AUDIO_RATE = 48000;
 const fastSupported = () =>
   'VideoEncoder' in window && 'VideoFrame' in window && 'OfflineAudioContext' in window && !!window.Mp4Muxer;
 
-async function pickVideoConfig(W, H, fps, bitrate) {
-  const codecs = ['avc1.640034', 'avc1.64002A', 'avc1.640028', 'avc1.4D0034', 'avc1.4D0028', 'avc1.42003E', 'avc1.42001F'];
+async function pickVideoConfig(W, H, fps, bitrate, accel = 'no-preference') {
+  // livello H.264 minimo adatto a risoluzione e fps (livelli troppo alti
+  // possono mettere in difficoltà alcuni codificatori hardware)
+  const mbs = Math.ceil(W / 16) * Math.ceil(H / 16), mbps = mbs * fps;
+  const level = mbs <= 3600 && mbps <= 108000 ? '1F'      // 3.1 (720p30)
+    : mbs <= 8192 && mbps <= 245760 ? '28'                 // 4.0 (1080p30)
+    : mbs <= 8704 && mbps <= 522240 ? '2A'                 // 4.2 (1080p60)
+    : '33';                                                 // 5.1
+  const codecs = [`avc1.6400${level}`, `avc1.4D00${level}`, `avc1.4200${level}`, 'avc1.640033', 'avc1.42003E'];
   for (const codec of codecs) {
-    const cfg = { codec, width: W, height: H, bitrate, framerate: fps, avc: { format: 'avc' } };
+    const cfg = { codec, width: W, height: H, bitrate, framerate: fps, hardwareAcceleration: accel, avc: { format: 'avc' } };
     try { if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; } catch { /* prova il prossimo */ }
   }
   return null;
@@ -1248,21 +1255,27 @@ async function renderAudioMix() {
   return oc.startRendering();
 }
 
-function encodeAudioBuffer(buffer, encoder) {
-  const N = buffer.length, CH = 4096;
+// Codifica l'audio a pezzi, fino al secondo "untilSec"
+function makeAudioFeeder(buffer, encoder) {
+  const N = buffer.length, CH = 4096, SR = buffer.sampleRate;
   const L = buffer.getChannelData(0), R = buffer.getChannelData(buffer.numberOfChannels > 1 ? 1 : 0);
-  for (let off = 0; off < N; off += CH) {
-    const n = Math.min(CH, N - off);
-    const data = new Float32Array(n * 2);
-    data.set(L.subarray(off, off + n), 0);
-    data.set(R.subarray(off, off + n), n);
-    const ad = new AudioData({
-      format: 'f32-planar', sampleRate: buffer.sampleRate, numberOfFrames: n,
-      numberOfChannels: 2, timestamp: Math.round(off / buffer.sampleRate * 1e6), data,
-    });
-    encoder.encode(ad);
-    ad.close();
-  }
+  let off = 0;
+  return untilSec => {
+    const end = Math.min(N, Math.ceil(untilSec * SR));
+    while (off < end) {
+      const n = Math.min(CH, N - off);
+      const data = new Float32Array(n * 2);
+      data.set(L.subarray(off, off + n), 0);
+      data.set(R.subarray(off, off + n), n);
+      const ad = new AudioData({
+        format: 'f32-planar', sampleRate: SR, numberOfFrames: n,
+        numberOfChannels: 2, timestamp: Math.round(off / SR * 1e6), data,
+      });
+      encoder.encode(ad);
+      ad.close();
+      off += n;
+    }
+  };
 }
 
 function seekExact(v, t) {
@@ -1370,23 +1383,45 @@ class VideoFrameReader {
     }
     this.next = start;
     this.limit = clip.out + 1;
+    this.target = -Infinity;
+    this.lastOutput = performance.now();
     this.decoder = new VideoDecoder({
-      output: f => { this.frames.push(f); this.frames.sort((a, b) => a.timestamp - b.timestamp); },
+      output: f => {
+        this.lastOutput = performance.now();
+        this.frames.push(f);
+        this.frames.sort((a, b) => a.timestamp - b.timestamp);
+        this.prune();
+      },
       error: e => { this.error = e; },
     });
     this.decoder.configure(config);
   }
 
+  // Chiude subito i fotogrammi già superati: alcune schede grafiche ne
+  // possono tenere in memoria solo pochi, altrimenti la decodifica si ferma
+  prune() {
+    while (this.frames.length > 1 && this.frames[1].timestamp <= this.target) this.frames.shift().close();
+  }
+
+  ready() {
+    const last = this.frames[this.frames.length - 1];
+    return !!last && last.timestamp > this.target;
+  }
+
   async feed() {
     const batch = [];
-    while (batch.length < 10 && this.next < this.samples.length) {
+    while (batch.length < 4 && this.next < this.samples.length) {
       const s = this.samples[this.next];
       if (s.t > this.limit && s.key) break;
       batch.push(s);
       this.next++;
     }
     if (!batch.length) {
-      if (!this.ended) { await this.decoder.flush(); this.ended = true; }
+      if (!this.ended) {
+        const ok = await Promise.race([this.decoder.flush().then(() => true), sleep(5000).then(() => false)]);
+        if (!ok) throw new Error('stall');
+        this.ended = true;
+      }
       return;
     }
     const datas = await Promise.all(batch.map(s => this.blob.slice(s.offset, s.offset + s.size).arrayBuffer()));
@@ -1396,23 +1431,24 @@ class VideoFrameReader {
       duration: Math.round(s.dur * 1e6),
       data: datas[i],
     })));
-    while (this.decoder.decodeQueueSize > 2 && !this.error) await sleep(1);
+    // attende che il decodificatore smaltisca, ma solo finché serve
+    while (this.decoder.decodeQueueSize > 2 && !this.error && !this.ready()) {
+      if (performance.now() - this.lastOutput > 5000) throw new Error('stall');
+      await sleep(1);
+    }
   }
 
   // Restituisce il fotogramma visibile al tempo t (secondi del file originale)
   async frameAt(t) {
-    const tus = t * 1e6 + 500;
-    let guard = 0;
-    while (!this.ended) {
+    this.target = t * 1e6 + 500;
+    this.prune();
+    this.lastOutput = performance.now();
+    while (!this.ended && !this.ready()) {
       if (this.error) throw this.error;
-      const last = this.frames[this.frames.length - 1];
-      if (last && last.timestamp > tus) break;
-      // tiene in memoria pochi fotogrammi: libera quelli già superati
-      while (this.frames.length > 1 && this.frames[1].timestamp <= tus) this.frames.shift().close();
       await this.feed();
-      if (++guard > 100000) break;
+      this.prune();
     }
-    while (this.frames.length > 1 && this.frames[1].timestamp <= tus) this.frames.shift().close();
+    this.prune();
     return this.frames[0] || null;
   }
 
@@ -1444,9 +1480,16 @@ async function prepareFramesAt(t) {
     if (!frameReaders.has(c.id) && !finishedReaders.has(c.id)) frameReaders.set(c.id, await VideoFrameReader.open(c));
     const reader = frameReaders.get(c.id);
     if (reader) {
-      const frame = await reader.frameAt(local);
-      exportFrames.set(c.id, { frame, rot: reader.rot });
-      if (frame) continue;
+      try {
+        const frame = await reader.frameAt(local);
+        exportFrames.set(c.id, { frame, rot: reader.rot });
+        if (frame) continue;
+      } catch (err) {
+        // decodifica bloccata o in errore: si passa al lettore video per questa clip
+        console.warn('Lettura veloce interrotta per', c.name, err);
+        reader.close();
+        frameReaders.set(c.id, null);
+      }
       exportFrames.delete(c.id);
     }
     // metodo di riserva: posiziona il lettore video
@@ -1468,6 +1511,11 @@ function closeFrameReaders() {
 // Cede il controllo al browser senza i rallentamenti di setTimeout
 const yieldUI = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
 
+class ExportStall extends Error {}
+
+// Attende una promessa al massimo "ms" millisecondi
+const withTimeout = (p, ms) => Promise.race([p, sleep(ms).then(() => { throw new ExportStall('timeout'); })]);
+
 async function fastExport() {
   const status = txt => { $('#expStatus').textContent = txt; };
   exp.canceled = false;
@@ -1476,12 +1524,42 @@ async function fastExport() {
   $('#expProgress').value = 0;
   stopPlayback();
   select(null);
+  try {
+    let result;
+    try {
+      result = await fastExportAttempt('no-preference', status);
+    } catch (err) {
+      if (!(err instanceof ExportStall) || exp.canceled) throw err;
+      // il codificatore della scheda grafica si è bloccato: riprova via software
+      console.warn('Codificatore bloccato, nuovo tentativo con codifica software');
+      status('Nuovo tentativo con un metodo più compatibile…');
+      $('#expProgress').value = 0;
+      result = await fastExportAttempt('prefer-software', status);
+    }
+    exp.running = false;
+    deliverFile(result.blob, 'mp4', ` · creato in ${result.secs.toFixed(0)} s`);
+  } catch (err) {
+    exp.running = false;
+    $('#exportDlg').close();
+    if (err.message === 'canceled') {
+      toast('Esportazione interrotta');
+    } else {
+      console.error(err);
+      const why = err instanceof ExportStall ? 'il codificatore video non risponde' : err.message;
+      toast(`Esportazione veloce non riuscita (${why}). Prova la modalità "In tempo reale".`, 9000);
+    }
+  } finally {
+    closeFrameReaders();
+    seek(0);
+  }
+}
 
+async function fastExportAttempt(accel, status) {
   const W = canvas.width, H = canvas.height, fps = settings.fps;
   let venc = null, aenc = null;
   try {
     status('Preparazione…');
-    const vcfg = await pickVideoConfig(W, H, fps, Number($('#expBitrate').value));
+    const vcfg = await pickVideoConfig(W, H, fps, Number($('#expBitrate').value), accel);
     if (!vcfg) throw new Error('il browser non sa codificare video H.264');
     const acfg = await pickAudioConfig();
 
@@ -1500,11 +1578,23 @@ async function fastExport() {
     let encErr = null;
     venc = new VideoEncoder({ output: (ch, meta) => muxer.addVideoChunk(ch, meta), error: e => { encErr = e; } });
     venc.configure(vcfg);
+    let feedAudio = null;
     if (mix) {
       aenc = new AudioEncoder({ output: (ch, meta) => muxer.addAudioChunk(ch, meta), error: e => { encErr = e; } });
       aenc.configure(acfg.cfg);
-      encodeAudioBuffer(mix, aenc);
+      feedAudio = makeAudioFeeder(mix, aenc);
     }
+
+    // attende che i codificatori smaltiscano la coda, con controllo anti-blocco
+    const drain = async () => {
+      const since = performance.now();
+      while (venc.encodeQueueSize > 4 || (aenc && aenc.encodeQueueSize > 16)) {
+        if (encErr) throw encErr;
+        if (exp.canceled) throw new Error('canceled');
+        if (performance.now() - since > 8000) throw new ExportStall('encoder');
+        await sleep(2);
+      }
+    };
 
     const N = Math.max(1, Math.round(total * fps));
     const t0 = performance.now();
@@ -1517,7 +1607,8 @@ async function fastExport() {
       const frame = new VideoFrame(canvas, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
       venc.encode(frame, { keyFrame: i % (fps * 2) === 0 });
       frame.close();
-      while (venc.encodeQueueSize > 6) await sleep(1);
+      if (feedAudio) feedAudio((i + 1) / fps + 0.5);
+      await drain();
       if (i % 5 === 0) {
         const done = (i + 1) / N;
         const elapsed = (performance.now() - t0) / 1000;
@@ -1527,29 +1618,17 @@ async function fastExport() {
         await yieldUI();
       }
     }
+    if (feedAudio) feedAudio(Infinity);
     status('Finalizzazione…');
-    await venc.flush();
-    if (aenc) await aenc.flush();
+    await withTimeout(venc.flush(), 20000);
+    if (aenc) await withTimeout(aenc.flush(), 20000);
     if (encErr) throw encErr;
     muxer.finalize();
-    const secs = (performance.now() - t0) / 1000;
-    exp.running = false;
-    deliverFile(new Blob([muxer.target.buffer], { type: 'video/mp4' }), 'mp4', ` · creato in ${secs.toFixed(0)} s`);
-  } catch (err) {
-    exp.running = false;
-    if (err.message === 'canceled') {
-      $('#exportDlg').close();
-      toast('Esportazione interrotta');
-    } else {
-      console.error(err);
-      $('#exportDlg').close();
-      toast(`Esportazione veloce non riuscita (${err.message}). Prova la modalità "In tempo reale".`, 8000);
-    }
+    return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), secs: (performance.now() - t0) / 1000 };
   } finally {
     try { if (venc && venc.state !== 'closed') venc.close(); } catch { /* ignore */ }
     try { if (aenc && aenc.state !== 'closed') aenc.close(); } catch { /* ignore */ }
     closeFrameReaders();
-    seek(0);
   }
 }
 
