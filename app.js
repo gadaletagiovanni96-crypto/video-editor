@@ -45,10 +45,10 @@ const ANIMATIONS = {
   none:      { label: 'Nessuna (ferma)',             from: { s: 1,   dx: 0,     dy: 0 },     to: { s: 1,   dx: 0,     dy: 0 } },
   zoomIn:    { label: 'Avvicinamento lento',         from: { s: .9,  dx: 0,     dy: 0 },     to: { s: 1,   dx: 0,     dy: 0 } },
   zoomOut:   { label: 'Allontanamento lento',        from: { s: 1,   dx: 0,     dy: 0 },     to: { s: .9,  dx: 0,     dy: 0 } },
-  panRight:  { label: 'Scivola verso destra',        from: { s: .93, dx: -.025, dy: 0 },     to: { s: .93, dx: .025,  dy: 0 } },
-  panLeft:   { label: 'Scivola verso sinistra',      from: { s: .93, dx: .025,  dy: 0 },     to: { s: .93, dx: -.025, dy: 0 } },
-  panDown:   { label: 'Scivola verso il basso',      from: { s: .93, dx: 0,     dy: -.025 }, to: { s: .93, dx: 0,     dy: .025 } },
-  panUp:     { label: "Scivola verso l'alto",        from: { s: .93, dx: 0,     dy: .025 },  to: { s: .93, dx: 0,     dy: -.025 } },
+  panRight:  { label: 'Scivola verso destra',        from: { s: .93, dx: -.035, dy: 0 },     to: { s: .93, dx: .035,  dy: 0 } },
+  panLeft:   { label: 'Scivola verso sinistra',      from: { s: .93, dx: .035,  dy: 0 },     to: { s: .93, dx: -.035, dy: 0 } },
+  panDown:   { label: 'Scivola verso il basso',      from: { s: .93, dx: 0,     dy: -.035 }, to: { s: .93, dx: 0,     dy: .035 } },
+  panUp:     { label: "Scivola verso l'alto",        from: { s: .93, dx: 0,     dy: .035 },  to: { s: .93, dx: 0,     dy: -.035 } },
   zoomInTL:  { label: 'Avvicinamento verso alto-sx', from: { s: .9,  dx: .02,   dy: .02 },   to: { s: .97, dx: -.015, dy: -.015 } },
   zoomInBR:  { label: 'Avvicinamento verso basso-dx', from: { s: .9, dx: -.02,  dy: -.02 },  to: { s: .97, dx: .015,  dy: .015 } },
   zoomOutTR: { label: 'Allontanamento da alto-dx',   from: { s: .97, dx: .015,  dy: -.015 }, to: { s: .9,  dx: -.02,  dy: .02 } },
@@ -198,7 +198,7 @@ async function createImageClip(file) {
     duration: settings.photoDuration,
     transition: settings.transition,
     anim: settings.defaultAnim === 'random' ? randomAnim() : settings.defaultAnim,
-    fit: settings.photoFit,
+    fit: photoFitFor(w, h),
   };
 }
 
@@ -287,6 +287,12 @@ function disposeMedia(item) {
 /* =========================================================
  * Calcolo della timeline
  * ======================================================= */
+// Adattamento predefinito di una foto in base all'impostazione del progetto
+function photoFitFor(w, h) {
+  if (settings.photoFit === 'coverLandscape') return w > h ? 'cover' : 'contain';
+  return settings.photoFit;
+}
+
 const clipDur = c => (c.type === 'image' ? c.duration : Math.max(0.1, c.out - c.in));
 
 function relayout() {
@@ -388,9 +394,14 @@ function photoMotion(c, p) {
   const k = settings.animStrength;
   const sOf = v => 1 - (1 - v.s) * k;
   let s = lerp(sOf(a.from), sOf(a.to), p);
-  // in modalità "riempi" lo zoom parte da 1 per non lasciare bordi vuoti
-  if (c.fit === 'cover') s /= Math.min(sOf(a.from), sOf(a.to));
-  return { s, dx: lerp(a.from.dx, a.to.dx, p) * k, dy: lerp(a.from.dy, a.to.dy, p) * k };
+  const dx = lerp(a.from.dx, a.to.dx, p) * k, dy = lerp(a.from.dy, a.to.dy, p) * k;
+  if (c.fit === 'cover') {
+    // in modalità "riempi" lo zoom parte da 1 per non lasciare bordi vuoti,
+    // più un piccolo margine che lascia spazio allo scivolamento
+    const maxOff = Math.max(Math.abs(a.from.dx), Math.abs(a.to.dx), Math.abs(a.from.dy), Math.abs(a.to.dy)) * k;
+    s = s / Math.min(sOf(a.from), sOf(a.to)) * (1 + 2 * maxOff);
+  }
+  return { s, dx, dy };
 }
 
 function render() {
@@ -904,7 +915,11 @@ function buildProjectPanel() {
     ${rangeField('Intensità del movimento', 'animStrength', settings.animStrength, 0.25, 2.5, 0.05, 'x')}
     <p class="muted" style="font-size:12px;margin-top:-6px">1× = leggero (consigliato). Più basso = quasi fermo.</p>
     ${checkField('Movimento morbido (parte e si ferma dolcemente)', 'smoothAnim', settings.smoothAnim)}
-    ${selectField('Adattamento delle foto allo schermo', 'photoFit', { contain: 'Mostra tutte le foto intere (bordi neri se servono)', cover: 'Riempi lo schermo (taglia i bordi)' }, settings.photoFit)}
+    ${selectField('Adattamento delle foto allo schermo', 'photoFit', {
+      contain: 'Mostra tutte le foto intere (bordi neri se servono)',
+      coverLandscape: 'Riempi lo schermo solo con le foto orizzontali (le verticali restano intere)',
+      cover: 'Riempi lo schermo con tutte le foto (taglia i bordi)',
+    }, settings.photoFit)}
     <p class="muted" style="font-size:12px;margin-top:-6px">Vale per tutte le foto, anche quelle aggiunte dopo. Puoi comunque cambiarla per una singola foto.</p>
     <div class="section-title">Valori predefiniti per le nuove foto</div>
     ${rangeField('Durata foto', 'photoDuration', settings.photoDuration, 0.5, 30, 0.1)}
@@ -920,9 +935,13 @@ function buildProjectPanel() {
   bindPanel(settings, k => {
     if (k === 'aspect' || k === 'quality') applyCanvasSize();
     if (k === 'photoFit') {
-      clips.forEach(x => { if (x.type === 'image') x.fit = settings.photoFit; });
+      clips.forEach(x => { if (x.type === 'image') x.fit = photoFitFor(x.w, x.h); });
       refresh();
-      toast(settings.photoFit === 'contain' ? 'Tutte le foto ora sono mostrate intere' : 'Tutte le foto ora riempiono lo schermo');
+      toast({
+        contain: 'Tutte le foto ora sono mostrate intere',
+        coverLandscape: 'Le foto orizzontali riempiono lo schermo, le verticali restano intere',
+        cover: 'Tutte le foto ora riempiono lo schermo',
+      }[settings.photoFit]);
     }
     requestRender();
   });
@@ -1561,15 +1580,23 @@ function setupUI() {
   sb.addEventListener('input', () => { seekDragging = true; seek(sb.value / 1000 * total); });
   sb.addEventListener('change', () => { seekDragging = false; });
 
-  // Rotellina del mouse sulla timeline: scorre le clip in orizzontale
-  // (Ctrl + rotellina = zoom)
-  $('#tlScroll').addEventListener('wheel', e => {
+  // Rotellina del mouse sulla timeline: scorre le clip in orizzontale.
+  // Ctrl + rotellina (o pizzico sul touchpad) = zoom, centrato sul puntatore.
+  document.querySelector('.timeline').addEventListener('wheel', e => {
     const sc = $('#tlScroll');
-    if (e.ctrlKey) {
+    if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const z = $('#zoom');
-      z.value = clamp(Number(z.value) * (e.deltaY < 0 ? 1.15 : 1 / 1.15), Number(z.min), Number(z.max));
-      z.dispatchEvent(new Event('input'));
+      const rect = sc.getBoundingClientRect();
+      const mx = clamp(e.clientX - rect.left, 0, sc.clientWidth);
+      const tAtMouse = (sc.scrollLeft + mx) / pps;
+      const factor = Math.pow(1.0015, -e.deltaY * (e.deltaMode === 1 ? 40 : 1));
+      const nz = clamp(pps * factor, Number(z.min), Number(z.max));
+      if (Math.abs(nz - pps) < 0.01) return;
+      pps = nz;
+      z.value = nz;
+      renderTimeline();
+      sc.scrollLeft = tAtMouse * pps - mx;
       return;
     }
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return; // touchpad: scorrimento orizzontale nativo

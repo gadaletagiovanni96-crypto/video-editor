@@ -22,6 +22,7 @@ In alternativa puoi pubblicarlo gratis con GitHub Pages (Settings → Pages → 
 | Una o più tracce musicali | **♪ Musica**: le tracce si mettono in fila. Trascinale nella timeline per spostarle; puoi tagliarle, regolare volume e dissolvenze |
 | Riordinare le clip | Trascina le clip nella timeline |
 | Formato (16:9, verticale 9:16, 1:1, 4:3), risoluzione, fps | **⚙ Progetto** |
+| Foto intere o a tutto schermo (anche solo le orizzontali, così le verticali non vengono mai tagliate) | **⚙ Progetto** → *Adattamento delle foto allo schermo* |
 | Esportare | **⬇ Esporta video** |
 
 Scorciatoie: `spazio` play/pausa · rotellina del mouse sulla timeline = scorri le clip (`Ctrl` + rotellina = zoom) · `Canc` elimina la clip selezionata · `←` `→` sposta il cursore (con `Shift` di 1 secondo).
