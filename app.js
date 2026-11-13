@@ -614,11 +614,16 @@ function render() {
       drawSource(c.src, c.w, c.h, c.fit, photoMotion(c, p));
     } else {
       const ef = exportFrames.get(c.id);
+      let drawn = false;
       if (ef && ef.frame) {
-        const side = ef.rot === 90 || ef.rot === 270;
-        const fw = ef.frame.displayWidth, fh = ef.frame.displayHeight;
-        drawSource(ef.frame, side ? fh : fw, side ? fw : fh, c.fit, { s: 1, dx: 0, dy: 0 }, ef.rot);
-      } else if (c.el.readyState >= 2) {
+        try {
+          const side = ef.rot === 90 || ef.rot === 270;
+          const fw = ef.frame.displayWidth, fh = ef.frame.displayHeight;
+          drawSource(ef.frame, side ? fh : fw, side ? fw : fh, c.fit, { s: 1, dx: 0, dy: 0 }, ef.rot);
+          drawn = true;
+        } catch { exportFrames.delete(c.id); } // fotogramma non più valido
+      }
+      if (drawn) { /* già disegnato */ } else if (c.el.readyState >= 2) {
         drawSource(c.el, c.el.videoWidth, c.el.videoHeight, c.fit, { s: 1, dx: 0, dy: 0 });
       }
     }
@@ -1201,7 +1206,7 @@ function move(dir) {
 /* =========================================================
  * Esportazione
  * ======================================================= */
-const exp = { mode: 'fast', running: false, rec: null, chunks: [], canceled: false, mime: '', url: null };
+const exp = { mode: 'fast', gen: 0, stage: '', progressAt: 0, watchdog: 0, cleanup: null, running: false, rec: null, chunks: [], canceled: false, mime: '', url: null };
 
 const FORMATS = [
   ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'MP4 (H.264 + AAC) – consigliato', 'mp4'],
@@ -1633,7 +1638,7 @@ class VideoFrameReader {
 const frameReaders = new Map(); // clip.id -> VideoFrameReader | null (null = usa il lettore video)
 const finishedReaders = new Set();
 
-async function prepareFramesAt(t) {
+async function prepareFramesAt(t, gen = exp.gen) {
   const seeks = [];
   for (const [i, L] of layout.entries()) {
     const c = L.clip;
@@ -1648,14 +1653,22 @@ async function prepareFramesAt(t) {
       continue;
     }
     const local = Math.min(c.in + clamp(t - L.start, 0, L.dur), c.srcDuration - 0.001);
-    if (!frameReaders.has(c.id) && !finishedReaders.has(c.id)) frameReaders.set(c.id, await VideoFrameReader.open(c));
+    if (!frameReaders.has(c.id) && !finishedReaders.has(c.id)) {
+      exp.stage = `apertura del video "${c.name}"`;
+      const r = await withTimeout(VideoFrameReader.open(c), 10000).catch(() => null);
+      if (exp.gen !== gen) { if (r) r.close(); return; }
+      frameReaders.set(c.id, r);
+    }
+    exp.stage = `lettura del video "${c.name}"`;
     const reader = frameReaders.get(c.id);
     if (reader) {
       try {
-        const frame = await reader.frameAt(local);
+        const frame = await withTimeout(reader.frameAt(local), 8000);
+        if (exp.gen !== gen) return;
         exportFrames.set(c.id, { frame, rot: reader.rot });
         if (frame) continue;
       } catch (err) {
+        if (exp.gen !== gen) return;
         // decodifica bloccata o in errore: si passa al lettore video per questa clip
         console.warn('Lettura veloce interrotta per', c.name, err);
         reader.close();
@@ -1669,6 +1682,7 @@ async function prepareFramesAt(t) {
     if (Math.abs(v.currentTime - local) < 1e-4 && !v.seeking && v.readyState >= 2) continue;
     seeks.push(seekExact(v, local));
   }
+  if (seeks.length) exp.stage = 'posizionamento del lettore video';
   await Promise.all(seeks);
 }
 
@@ -1680,7 +1694,12 @@ function closeFrameReaders() {
 }
 
 // Cede il controllo al browser senza i rallentamenti di setTimeout
-const yieldUI = () => new Promise(r => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
+// (canale unico e sempre referenziato: un canale creato al volo può essere
+// eliminato dal browser prima di consegnare il messaggio, bloccando tutto)
+const yieldChannel = new MessageChannel();
+const yieldQueue = [];
+yieldChannel.port1.onmessage = () => { const r = yieldQueue.shift(); if (r) r(); };
+const yieldUI = () => new Promise(r => { yieldQueue.push(r); yieldChannel.port2.postMessage(0); });
 
 class ExportStall extends Error {}
 
@@ -1689,27 +1708,58 @@ const withTimeout = (p, ms) => Promise.race([p, sleep(ms).then(() => { throw new
 
 async function fastExport() {
   const status = txt => { $('#expStatus').textContent = txt; };
+  const gen = ++exp.gen;
   exp.canceled = false;
   exp.running = true;
+  exp.stage = 'preparazione';
+  exp.progressAt = performance.now();
   showExportStep('run');
   $('#expProgress').value = 0;
   stopPlayback();
   select(null);
+
+  // Sentinella: se l'esportazione veloce non avanza per 20 s viene
+  // abbandonata e si passa da soli alla modalità in tempo reale
+  clearInterval(exp.watchdog);
+  exp.watchdog = setInterval(() => {
+    if (exp.gen !== gen) { clearInterval(exp.watchdog); return; }
+    if (performance.now() - exp.progressAt < 20000) return;
+    clearInterval(exp.watchdog);
+    const where = exp.stage;
+    console.warn('Esportazione veloce bloccata durante:', where);
+    abandonFastExport();
+    if (!supportedFormats().length) {
+      exp.running = false;
+      $('#exportDlg').close();
+      toast(`Esportazione bloccata (durante: ${where}).`, 10000);
+      return;
+    }
+    toast(`La modalità veloce si è bloccata (durante: ${where}). Passo alla modalità in tempo reale.`, 10000);
+    exp.mode = 'realtime';
+    $('#expFormat').selectedIndex = 0;
+    realtimeExport();
+  }, 1000);
+
   try {
     let result;
     try {
-      result = await fastExportAttempt('no-preference', status);
+      result = await fastExportAttempt('no-preference', status, gen);
     } catch (err) {
-      if (!(err instanceof ExportStall) || exp.canceled) throw err;
+      if (!(err instanceof ExportStall) || exp.gen !== gen || exp.canceled) throw err;
       // il codificatore della scheda grafica si è bloccato: riprova via software
       console.warn('Codificatore bloccato, nuovo tentativo con codifica software');
       status('Nuovo tentativo con un metodo più compatibile…');
       $('#expProgress').value = 0;
-      result = await fastExportAttempt('prefer-software', status);
+      exp.progressAt = performance.now();
+      result = await fastExportAttempt('prefer-software', status, gen);
     }
+    if (exp.gen !== gen) return;
+    clearInterval(exp.watchdog);
     exp.running = false;
     deliverFile(result.blob, 'mp4', ` · creato in ${result.secs.toFixed(0)} s`);
   } catch (err) {
+    if (exp.gen !== gen) return; // abbandonata (interrotta o sostituita): niente da fare
+    clearInterval(exp.watchdog);
     exp.running = false;
     $('#exportDlg').close();
     if (err.message === 'canceled') {
@@ -1720,24 +1770,41 @@ async function fastExport() {
       toast(`Esportazione veloce non riuscita (${why}). Prova la modalità "In tempo reale".`, 9000);
     }
   } finally {
-    closeFrameReaders();
-    seek(0);
+    if (exp.gen === gen) { closeFrameReaders(); seek(0); }
   }
 }
 
-async function fastExportAttempt(accel, status) {
+// Abbandona subito l'esportazione veloce in corso, anche se è bloccata
+function abandonFastExport() {
+  exp.gen++;
+  clearInterval(exp.watchdog);
+  try { exp.cleanup?.(); } catch { /* ignore */ }
+  exp.cleanup = null;
+  closeFrameReaders();
+}
+
+async function fastExportAttempt(accel, status, gen) {
   const W = canvas.width, H = canvas.height, fps = settings.fps;
   let venc = null, aenc = null;
+  const alive = () => { if (exp.gen !== gen || exp.canceled) throw new Error('canceled'); };
+  exp.cleanup = () => {
+    try { if (venc && venc.state !== 'closed') venc.close(); } catch { /* ignore */ }
+    try { if (aenc && aenc.state !== 'closed') aenc.close(); } catch { /* ignore */ }
+  };
   try {
     status('Preparazione…');
+    exp.stage = 'scelta del codificatore video';
     const vcfg = await pickVideoConfig(W, H, fps, Number($('#expBitrate').value), accel);
     if (!vcfg) throw new Error('il browser non sa codificare video H.264');
     const acfg = await pickAudioConfig();
 
+    alive();
     status('Preparazione audio…');
+    exp.stage = 'preparazione audio';
     const hasAudio = music.length > 0 || clips.some(c => c.type === 'video' && !c.muted);
     const mix = acfg && hasAudio ? await renderAudioMix() : null;
-    if (exp.canceled) throw new Error('canceled');
+    alive();
+    exp.progressAt = performance.now();
 
     const muxer = new Mp4Muxer.Muxer({
       target: new Mp4Muxer.ArrayBufferTarget(),
@@ -1761,7 +1828,7 @@ async function fastExportAttempt(accel, status) {
       const since = performance.now();
       while (venc.encodeQueueSize > 4 || (aenc && aenc.encodeQueueSize > 16)) {
         if (encErr) throw encErr;
-        if (exp.canceled) throw new Error('canceled');
+        alive();
         if (performance.now() - since > 8000) throw new ExportStall('encoder');
         await sleep(2);
       }
@@ -1770,15 +1837,20 @@ async function fastExportAttempt(accel, status) {
     const N = Math.max(1, Math.round(total * fps));
     const t0 = performance.now();
     for (let i = 0; i < N; i++) {
-      if (exp.canceled) throw new Error('canceled');
+      alive();
       if (encErr) throw encErr;
+      exp.progressAt = performance.now();
       player.t = Math.min(i / fps, total);
-      await prepareFramesAt(player.t);
+      await prepareFramesAt(player.t, gen);
+      alive();
+      exp.stage = 'disegno del fotogramma';
       render();
       const frame = new VideoFrame(canvas, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
       venc.encode(frame, { keyFrame: i % (fps * 2) === 0 });
       frame.close();
+      exp.stage = 'codifica audio';
       if (feedAudio) feedAudio((i + 1) / fps + 0.5);
+      exp.stage = 'codifica video';
       await drain();
       if (i % 5 === 0) {
         const done = (i + 1) / N;
@@ -1786,26 +1858,40 @@ async function fastExportAttempt(accel, status) {
         const speed = elapsed > 0.5 ? ` · ${((i + 1) / fps / elapsed).toFixed(1)}× più veloce del tempo reale` : '';
         $('#expProgress').value = done;
         status(`Creazione video… ${Math.round(done * 100)}%${speed}`);
+        exp.stage = 'attesa del browser';
         await yieldUI();
       }
     }
     if (feedAudio) feedAudio(Infinity);
     status('Finalizzazione…');
+    exp.stage = 'finalizzazione';
+    exp.progressAt = performance.now() + 20000; // la finalizzazione ha già i suoi tempi massimi
     await withTimeout(venc.flush(), 20000);
     if (aenc) await withTimeout(aenc.flush(), 20000);
     if (encErr) throw encErr;
+    alive();
     muxer.finalize();
     return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), secs: (performance.now() - t0) / 1000 };
   } finally {
-    try { if (venc && venc.state !== 'closed') venc.close(); } catch { /* ignore */ }
-    try { if (aenc && aenc.state !== 'closed') aenc.close(); } catch { /* ignore */ }
-    closeFrameReaders();
+    if (exp.gen === gen) {
+      exp.cleanup?.();
+      exp.cleanup = null;
+      closeFrameReaders();
+    }
   }
 }
 
 function abortExport() {
   exp.canceled = true;
-  if (exp.mode === 'fast') { $('#expStatus').textContent = 'Interruzione…'; return; }
+  if (exp.mode === 'fast') {
+    // chiude subito, senza aspettare che l'esportazione si accorga dell'interruzione
+    abandonFastExport();
+    exp.running = false;
+    $('#exportDlg').close();
+    seek(0);
+    toast('Esportazione interrotta');
+    return;
+  }
   exp.running = false;
   pause();
   if (exp.rec && exp.rec.state !== 'inactive') exp.rec.stop();
