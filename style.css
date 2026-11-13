@@ -34,6 +34,7 @@ body {
   flex-wrap: wrap;
 }
 .brand { font-weight: 700; font-size: 16px; }
+.save-state { font-weight: 400; font-size: 12px; color: var(--muted); margin-left: 10px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
 .btn {

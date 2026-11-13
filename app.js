@@ -246,11 +246,11 @@ async function addFiles(fileList) {
     toast(`Caricamento: ${f.name}…`, 60000);
     try {
       if (kind === 'image') {
-        const c = await createImageClip(f); clips.push(c); lastSel = { kind: 'clip', id: c.id };
+        const c = await createImageClip(f); c.fileId = storeFile(f); clips.push(c); lastSel = { kind: 'clip', id: c.id };
       } else if (kind === 'video') {
-        const c = await createVideoClip(f.name, URL.createObjectURL(f)); clips.push(c); lastSel = { kind: 'clip', id: c.id };
+        const c = await createVideoClip(f.name, URL.createObjectURL(f)); c.fileId = storeFile(f); clips.push(c); lastSel = { kind: 'clip', id: c.id };
       } else if (kind === 'audio') {
-        const m = await createMusic(f.name, URL.createObjectURL(f)); music.push(m); lastSel = { kind: 'music', id: m.id };
+        const m = await createMusic(f.name, URL.createObjectURL(f)); m.fileId = storeFile(f); music.push(m); lastSel = { kind: 'music', id: m.id };
       } else {
         toast(`Tipo di file non riconosciuto: ${f.name}`); await sleep(1500); continue;
       }
@@ -273,7 +273,7 @@ async function addFiles(fileList) {
 async function cloneClip(c) {
   if (c.type === 'image') return { ...c, id: uid++ };
   const n = await createVideoClip(c.name, c.url, c.thumb);
-  Object.assign(n, { in: c.in, out: c.out, muted: c.muted, volume: c.volume, transition: c.transition, fit: c.fit });
+  Object.assign(n, { in: c.in, out: c.out, muted: c.muted, volume: c.volume, transition: c.transition, fit: c.fit, fileId: c.fileId });
   return n;
 }
 
@@ -282,6 +282,175 @@ function disposeMedia(item) {
   item.el.pause();
   try { item.audio.src.disconnect(); item.audio.gain.disconnect(); } catch { /* ignore */ }
   item.el.remove();
+}
+
+/* =========================================================
+ * Salvataggio automatico del progetto (IndexedDB del browser)
+ * - "files":   copia di foto, video e musica importati
+ * - "project": impostazioni, ordine e regolazioni delle clip
+ * Tutto resta sul computer: niente viene inviato su internet.
+ * ======================================================= */
+let dbPromise = null;
+function openDB() {
+  if (!dbPromise) {
+    dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open('editor-video', 1);
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore('files');
+        req.result.createObjectStore('project');
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  return dbPromise;
+}
+// Esegue un'operazione su un archivio e restituisce il risultato a operazione conclusa
+async function idb(store, mode, fn) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, mode);
+    const req = fn(tx.objectStore(store));
+    tx.oncomplete = () => resolve(req ? req.result : undefined);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+const newId = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const pendingFiles = new Map(); // fileId -> scrittura in corso
+let storageWarned = false, persistAsked = false;
+
+function setSaveState(txt) { const el = $('#saveState'); if (el) el.textContent = txt; }
+
+// Salva una copia del file e restituisce subito il suo identificativo
+function storeFile(file) {
+  if (!persistAsked) { persistAsked = true; navigator.storage?.persist?.().catch(() => {}); }
+  const id = newId();
+  setSaveState('Salvataggio…');
+  const p = idb('files', 'readwrite', st => st.put({ blob: file, name: file.name, type: file.type }, id))
+    .catch(err => {
+      console.warn('Impossibile salvare il file', file.name, err);
+      if (!storageWarned) {
+        storageWarned = true;
+        toast('Spazio del browser insufficiente: alcuni file non verranno ripristinati se ricarichi la pagina', 8000);
+      }
+    })
+    .finally(() => { pendingFiles.delete(id); scheduleSave(); });
+  pendingFiles.set(id, p);
+  return id;
+}
+
+function serializeProject() {
+  return {
+    version: 1,
+    settings: { ...settings },
+    pps,
+    t: player.t,
+    clips: clips.filter(c => c.fileId).map(c => c.type === 'image'
+      ? { type: 'image', fileId: c.fileId, name: c.name, duration: c.duration, transition: c.transition, anim: c.anim, fit: c.fit }
+      : { type: 'video', fileId: c.fileId, name: c.name, in: c.in, out: c.out, muted: c.muted, volume: c.volume, transition: c.transition, fit: c.fit }),
+    music: music.filter(m => m.fileId).map(m => ({
+      fileId: m.fileId, name: m.name, start: m.start, in: m.in, out: m.out, volume: m.volume, fadeIn: m.fadeIn, fadeOut: m.fadeOut,
+    })),
+  };
+}
+
+let saveTimer = 0, restoring = false;
+function scheduleSave() {
+  if (restoring || !window.indexedDB) return;
+  clearTimeout(saveTimer);
+  setSaveState('Salvataggio…');
+  saveTimer = setTimeout(saveProject, 400);
+}
+
+async function saveProject() {
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  try {
+    const data = serializeProject();
+    await idb('project', 'readwrite', st => st.put(data, 'current'));
+    // elimina le copie dei file non più usati nel progetto
+    const used = new Set([...data.clips, ...data.music].map(x => x.fileId));
+    const keys = await idb('files', 'readonly', st => st.getAllKeys());
+    const unused = keys.filter(k => !used.has(k) && !pendingFiles.has(k));
+    if (unused.length) await idb('files', 'readwrite', st => { unused.forEach(k => st.delete(k)); return null; });
+    if (!saveTimer) setSaveState(pendingFiles.size ? 'Salvataggio…' : '✓ Progetto salvato');
+  } catch (err) {
+    console.warn('Salvataggio non riuscito', err);
+    setSaveState('⚠ Non salvato');
+  }
+}
+
+async function restoreProject() {
+  if (!window.indexedDB) return;
+  let data;
+  try { data = await idb('project', 'readonly', st => st.get('current')); } catch { return; }
+  if (!data) return;
+  Object.assign(settings, data.settings || {});
+  applyCanvasSize();
+  if (data.pps) { pps = data.pps; $('#zoom').value = pps; }
+  if (!data.clips.length && !data.music.length) { buildPanel(); return; }
+
+  restoring = true;
+  loadingCount++;
+  ensureAudio();
+  let missing = 0;
+  const total0 = data.clips.length + data.music.length;
+  let n = 0;
+  const load = async item => {
+    toast(`Ripristino del progetto… ${++n}/${total0}`, 60000);
+    const rec = await idb('files', 'readonly', st => st.get(item.fileId)).catch(() => null);
+    if (!rec) { missing++; return null; }
+    return new File([rec.blob], rec.name, { type: rec.type });
+  };
+  try {
+    for (const sc of data.clips) {
+      try {
+        const file = await load(sc);
+        if (!file) continue;
+        const c = sc.type === 'image' ? await createImageClip(file) : await createVideoClip(file.name, URL.createObjectURL(file));
+        const { type, ...saved } = sc;
+        Object.assign(c, saved);
+        if (c.type === 'video') { c.in = clamp(c.in, 0, c.srcDuration); c.out = clamp(c.out, c.in + 0.1, c.srcDuration); }
+        clips.push(c);
+        refresh();
+      } catch (err) { console.warn(err); missing++; }
+    }
+    for (const sm of data.music) {
+      try {
+        const file = await load(sm);
+        if (!file) continue;
+        const m = await createMusic(file.name, URL.createObjectURL(file));
+        Object.assign(m, sm);
+        m.in = clamp(m.in, 0, m.srcDuration); m.out = clamp(m.out, m.in + 0.1, m.srcDuration);
+        music.push(m);
+      } catch (err) { console.warn(err); missing++; }
+    }
+  } finally {
+    restoring = false;
+    loadingCount--;
+  }
+  refresh();
+  seek(data.t || 0);
+  buildPanel();
+  setSaveState('✓ Progetto salvato');
+  toast(missing ? `Progetto ripristinato (${missing} file non trovati)` : 'Progetto ripristinato', 4000);
+}
+
+function newProject() {
+  if ((clips.length || music.length) &&
+      !confirm('Vuoi iniziare un nuovo progetto?\nIl progetto attuale verrà eliminato.')) return;
+  pause();
+  for (const x of [...clips, ...music]) disposeMedia(x);
+  clips.length = 0;
+  music.length = 0;
+  selected = null;
+  player.t = 0;
+  refresh();
+  buildPanel();
+  saveProject();
+  toast('Nuovo progetto');
 }
 
 /* =========================================================
@@ -739,6 +908,7 @@ function refresh() {
   if (player.t > total) player.t = total;
   renderTimeline();
   seek(player.t);
+  scheduleSave();
 }
 
 const panel = $('#panel');
@@ -933,6 +1103,7 @@ function buildProjectPanel() {
       Scorciatoie: <b>spazio</b> = play/pausa, <b>rotellina</b> sulla timeline = scorri le clip (<b>Ctrl</b> + rotellina = zoom), <b>Canc</b> = elimina la clip selezionata,
       <b>← →</b> = sposta il cursore.</p>`;
   bindPanel(settings, k => {
+    scheduleSave();
     if (k === 'aspect' || k === 'quality') applyCanvasSize();
     if (k === 'photoFit') {
       clips.forEach(x => { if (x.type === 'image') x.fit = photoFitFor(x.w, x.h); });
@@ -1651,6 +1822,7 @@ function setupUI() {
   $('#fileMedia').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
   $('#fileMusic').onchange = e => { addFiles(e.target.files); e.target.value = ''; };
   $('#btnProject').onclick = () => select(null);
+  $('#btnNew').onclick = newProject;
   $('#btnExport').onclick = openExport;
   $('#btnPlay').onclick = togglePlay;
   $('#btnStart').onclick = () => seek(0);
@@ -1731,8 +1903,10 @@ function setupUI() {
     else if (e.key === 'ArrowRight' && e.target.type !== 'range') { e.preventDefault(); seek(player.t + (e.shiftKey ? 1 : 0.1)); }
   });
 
+  // avvisa solo se c'è ancora qualcosa da salvare
   window.addEventListener('beforeunload', e => {
-    if (clips.length || music.length) { e.preventDefault(); e.returnValue = ''; }
+    if (saveTimer) saveProject();
+    if (pendingFiles.size) { e.preventDefault(); e.returnValue = ''; }
   });
 
   setupTimelineEvents();
@@ -1745,6 +1919,7 @@ relayout();
 renderTimeline();
 buildPanel();
 render();
+restoreProject();
 
 // Accesso per test automatici / console
 window.editor = { clips, music, settings, player, seek, play, pause, addFiles, get total() { return total; }, exp };
