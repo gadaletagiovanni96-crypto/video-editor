@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Editor Video Semplice</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🎬 Editor Video</div>
+    <div class="actions">
+      <button id="btnAddMedia" class="btn">＋ Foto / Video</button>
+      <button id="btnAddMusic" class="btn">♪ Musica</button>
+      <button id="btnProject" class="btn ghost">⚙ Progetto</button>
+      <button id="btnExport" class="btn primary">⬇ Esporta video</button>
+    </div>
+    <input id="fileMedia" type="file" accept="image/*,video/*" multiple hidden>
+    <input id="fileMusic" type="file" accept="audio/*" multiple hidden>
+  </header>
+
+  <main class="workspace">
+    <section class="viewer">
+      <div id="stage" class="stage">
+        <canvas id="preview" width="1280" height="720"></canvas>
+      </div>
+      <div class="transport">
+        <button id="btnStart" class="icon" title="Vai all'inizio">⏮</button>
+        <button id="btnPlay" class="icon big" title="Play / Pausa (spazio)">▶</button>
+        <span id="timeLabel" class="time">00:00.0 / 00:00.0</span>
+        <input id="seekBar" type="range" min="0" max="1000" value="0" step="1">
+      </div>
+    </section>
+
+    <aside id="panel" class="panel"></aside>
+  </main>
+
+  <section class="timeline">
+    <div class="tl-toolbar">
+      <span class="hint">Trascina le clip per riordinarle · trascina la musica per spostarla · trascina i file qui sopra per importarli</span>
+      <label class="zoom">Zoom <input id="zoom" type="range" min="8" max="160" value="40"></label>
+    </div>
+    <div class="tl-body">
+      <div class="tl-labels">
+        <div class="lbl ruler-lbl"></div>
+        <div class="lbl">🎞 Video</div>
+        <div class="lbl">♪ Musica</div>
+      </div>
+      <div id="tlScroll" class="tl-scroll">
+        <div id="tlInner" class="tl-inner">
+          <div id="ruler" class="ruler"></div>
+          <div id="trackVideo" class="track track-video"></div>
+          <div id="trackMusic" class="track track-music"></div>
+          <div id="dropMarker" class="drop-marker" hidden></div>
+          <div id="playhead" class="playhead"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="mediaPool" class="media-pool" aria-hidden="true"></div>
+  <div id="dropOverlay" class="drop-overlay" hidden>Rilascia qui foto, video o musica</div>
+  <div id="toast" class="toast" hidden></div>
+
+  <dialog id="exportDlg" class="dialog">
+    <h2>Esporta video</h2>
+    <div id="exportSetup">
+      <label class="field"><span>Formato file</span><select id="expFormat"></select></label>
+      <label class="field"><span>Qualità</span>
+        <select id="expBitrate">
+          <option value="4000000">Normale (4 Mbit/s)</option>
+          <option value="8000000" selected>Alta (8 Mbit/s)</option>
+          <option value="16000000">Massima (16 Mbit/s)</option>
+        </select>
+      </label>
+      <p id="expInfo" class="muted"></p>
+      <p class="note">L'esportazione avviene in tempo reale (un video da 2 minuti richiede circa 2 minuti).
+        Tieni questa scheda <b>aperta e in primo piano</b> finché non è finita.</p>
+      <div class="dlg-actions">
+        <button id="expCancelSetup" class="btn ghost">Annulla</button>
+        <button id="expStart" class="btn primary">Avvia esportazione</button>
+      </div>
+    </div>
+    <div id="exportRun" hidden>
+      <progress id="expProgress" max="1" value="0"></progress>
+      <p id="expStatus" class="muted">Preparazione…</p>
+      <div class="dlg-actions"><button id="expAbort" class="btn ghost">Interrompi</button></div>
+    </div>
+    <div id="exportDone" hidden>
+      <p>✅ Video pronto!</p>
+      <p id="expResult" class="muted"></p>
+      <div class="dlg-actions">
+        <button id="expClose" class="btn ghost">Chiudi</button>
+        <a id="expDownload" class="btn primary" download>Scarica di nuovo</a>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
