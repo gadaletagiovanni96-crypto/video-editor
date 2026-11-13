@@ -38,7 +38,7 @@ Foto, video e musica vengono copiati nella memoria del browser **sul tuo compute
 
 ## Note sull'esportazione
 
-- **Modalità veloce (predefinita):** il video viene calcolato fotogramma per fotogramma e codificato direttamente in MP4 (WebCodecs), senza aspettare la durata reale. Le foto sono molto più veloci del tempo reale; i video MP4/MOV vengono letti direttamente dal file. Serve Chrome o Edge aggiornati.
+- **Modalità veloce (predefinita):** su Chrome/Edge si sceglie subito dove salvare il file e il video viene scritto direttamente sul disco mentre viene creato (niente problemi di memoria con video lunghi). Il video viene calcolato fotogramma per fotogramma e codificato direttamente in MP4 (WebCodecs), senza aspettare la durata reale. Le foto sono molto più veloci del tempo reale; i video MP4/MOV vengono letti direttamente dal file. Serve Chrome o Edge aggiornati.
 - **Modalità in tempo reale:** registra l'anteprima mentre scorre (un video di 3 minuti richiede circa 3 minuti). Resta disponibile come alternativa se la modalità veloce non funziona su un certo computer o con un certo file.
 - I video in formati diversi da MP4/MOV (es. WebM) vengono comunque esportati, ma più lentamente.
 

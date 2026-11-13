@@ -1265,9 +1265,46 @@ async function waitVideosReady(t) {
   }
 }
 
-function startExport() {
+async function startExport() {
   exp.mode = $('#expMode').value;
-  return exp.mode === 'fast' ? fastExport() : realtimeExport();
+  if (exp.mode !== 'fast') return realtimeExport();
+  // Chrome/Edge: il video viene scritto direttamente nel file scelto mentre
+  // viene creato, senza doverlo tenere tutto in memoria
+  exp.fileHandle = null;
+  if (window.showSaveFilePicker) {
+    try {
+      exp.fileHandle = await window.showSaveFilePicker({
+        suggestedName: exportFileName('mp4'),
+        types: [{ description: 'Video MP4', accept: { 'video/mp4': ['.mp4'] } }],
+      });
+    } catch (err) {
+      if (err.name === 'AbortError') return; // finestra "Salva" annullata: si resta qui
+      console.warn('Salvataggio diretto non disponibile, uso il download', err);
+      exp.fileHandle = null;
+    }
+  }
+  return fastExport();
+}
+
+// Raccoglie il file MP4 a pezzi (nessun unico blocco di memoria enorme).
+// Gestisce anche le riscritture di zone già scritte (es. intestazioni).
+class ChunkStore {
+  constructor() { this.parts = []; this.starts = []; this.end = 0; }
+  append(data) { this.parts.push(data); this.starts.push(this.end); this.end += data.length; }
+  write(data, pos) {
+    data = data.slice(); // copia: il muxer può riutilizzare il suo buffer
+    if (pos > this.end) this.append(new Uint8Array(pos - this.end));
+    if (pos === this.end) { this.append(data); return; }
+    // riscrittura di una zona già scritta
+    const stop = Math.min(pos + data.length, this.end);
+    this.parts.forEach((p, i) => {
+      const ps = this.starts[i];
+      const a = Math.max(pos, ps), b = Math.min(stop, ps + p.length);
+      if (a < b) p.set(data.subarray(a - pos, b - pos), a - ps);
+    });
+    if (pos + data.length > this.end) this.append(data.slice(this.end - pos));
+  }
+  toBlob() { return new Blob(this.parts, { type: 'video/mp4' }); }
 }
 
 function exportFileName(ext) {
@@ -1281,6 +1318,7 @@ function deliverFile(blob, ext, extra = '') {
   exp.url = URL.createObjectURL(blob);
   const name = exportFileName(ext);
   const a = $('#expDownload');
+  a.hidden = false;
   a.href = exp.url;
   a.download = name;
   $('#expResult').textContent = `${name} · ${(blob.size / 1048576).toFixed(1)} MB${extra}`;
@@ -1756,7 +1794,8 @@ async function fastExport() {
     if (exp.gen !== gen) return;
     clearInterval(exp.watchdog);
     exp.running = false;
-    deliverFile(result.blob, 'mp4', ` · creato in ${result.secs.toFixed(0)} s`);
+    if (result.saved) showSavedFile(result.secs);
+    else deliverFile(result.blob, 'mp4', ` · creato in ${result.secs.toFixed(0)} s`);
   } catch (err) {
     if (exp.gen !== gen) return; // abbandonata (interrotta o sostituita): niente da fare
     clearInterval(exp.watchdog);
@@ -1772,6 +1811,14 @@ async function fastExport() {
   } finally {
     if (exp.gen === gen) { closeFrameReaders(); seek(0); }
   }
+}
+
+async function showSavedFile(secs) {
+  let info = exp.fileHandle.name;
+  try { info += ` · ${((await exp.fileHandle.getFile()).size / 1048576).toFixed(1)} MB`; } catch { /* ignore */ }
+  $('#expResult').textContent = `Salvato come ${info} · creato in ${secs.toFixed(0)} s`;
+  $('#expDownload').hidden = true;
+  showExportStep('done');
 }
 
 // Abbandona subito l'esportazione veloce in corso, anche se è bloccata
@@ -1806,11 +1853,22 @@ async function fastExportAttempt(accel, status, gen) {
     alive();
     exp.progressAt = performance.now();
 
+    // destinazione: file su disco (Chrome/Edge) oppure memoria a pezzi
+    let target, store = null, writable = null;
+    if (exp.fileHandle) {
+      writable = await exp.fileHandle.createWritable();
+      target = new Mp4Muxer.FileSystemWritableFileStreamTarget(writable);
+    } else {
+      store = new ChunkStore();
+      target = new Mp4Muxer.StreamTarget({ onData: (data, position) => store.write(data, position), chunked: true });
+    }
+    const prevCleanup = exp.cleanup;
+    exp.cleanup = () => { prevCleanup?.(); if (writable) writable.abort().catch(() => {}); };
     const muxer = new Mp4Muxer.Muxer({
-      target: new Mp4Muxer.ArrayBufferTarget(),
+      target,
       video: { codec: 'avc', width: W, height: H, frameRate: fps },
       audio: mix ? { codec: acfg.mux, numberOfChannels: 2, sampleRate: AUDIO_RATE } : undefined,
-      fastStart: 'in-memory',
+      fastStart: false,
       firstTimestampBehavior: 'offset',
     });
     let encErr = null;
@@ -1871,7 +1929,13 @@ async function fastExportAttempt(accel, status, gen) {
     if (encErr) throw encErr;
     alive();
     muxer.finalize();
-    return { blob: new Blob([muxer.target.buffer], { type: 'video/mp4' }), secs: (performance.now() - t0) / 1000 };
+    const secs = (performance.now() - t0) / 1000;
+    if (writable) {
+      await writable.close(); // attende che tutto sia scritto sul disco
+      writable = null;
+      return { saved: true, secs };
+    }
+    return { blob: store.toBlob(), secs };
   } finally {
     if (exp.gen === gen) {
       exp.cleanup?.();
