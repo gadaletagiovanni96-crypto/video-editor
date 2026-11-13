@@ -564,7 +564,10 @@ function photoMotion(c, p) {
   const sOf = v => 1 - (1 - v.s) * k;
   let s = lerp(sOf(a.from), sOf(a.to), p);
   const dx = lerp(a.from.dx, a.to.dx, p) * k, dy = lerp(a.from.dy, a.to.dy, p) * k;
-  if (c.fit === 'cover') {
+  // "Riempi solo le orizzontali": le foto verticali occupano sempre tutta
+  // l'altezza (niente bordi sopra/sotto) e si muovono solo di lato
+  if (settings.photoFit === 'coverLandscape' && c.fit === 'contain' && c.h > c.w) s = 1;
+  else if (c.fit === 'cover') {
     // in modalità "riempi" lo zoom parte da 1 per non lasciare bordi vuoti,
     // più un piccolo margine che lascia spazio allo scivolamento
     const maxOff = Math.max(Math.abs(a.from.dx), Math.abs(a.to.dx), Math.abs(a.from.dy), Math.abs(a.to.dy)) * k;
