@@ -15,7 +15,7 @@ In alternativa puoi pubblicarlo gratis con GitHub Pages (Settings → Pages → 
 | Importare foto e video | **＋ Foto / Video** oppure trascina i file nella finestra |
 | Durata di ogni foto | Clicca la foto nella timeline → *Durata sullo schermo* |
 | Dissolvenza tra le clip | *Dissolvenza dalla clip precedente* (0–3 s) |
-| Foto animate (zoom e panoramiche come Movie Maker) | *Animazione (movimento)*, oppure *Animazioni casuali* per tutte |
+| Foto animate con movimento leggero (come Movie Maker), sempre visibili per intero | *Animazione (movimento)*, oppure *Animazioni casuali* per tutte. Intensità regolabile in **⚙ Progetto** |
 | Tagliare i video | Cursori *Inizio* / *Fine*, oppure *Inizio/Fine al cursore* |
 | Dividere un video in due | *✂ Dividi al cursore* (poi puoi eliminare un pezzo) |
 | Togliere l'audio di un video | *Rimuovi audio del video (muto)* |

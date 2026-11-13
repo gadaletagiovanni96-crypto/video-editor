@@ -34,21 +34,25 @@ function toast(msg, ms = 3000) {
 }
 
 /* =========================================================
- * Animazioni foto (stile "Ken Burns" / Movie Maker)
- * s = zoom, x/y = posizione (0 = bordo sinistro/alto, 1 = destro/basso)
+ * Animazioni foto (stile "Ken Burns" / Movie Maker), versione delicata.
+ * s  = zoom relativo alla foto "intera" (1 = la foto tocca i bordi dello
+ *      schermo; < 1 = un po' più piccola, con un margine nero)
+ * dx/dy = spostamento in frazione dello schermo (0 = centrata).
+ * Lo zoom non supera mai 1 e la posizione viene limitata ai bordi,
+ * quindi la foto resta sempre visibile per intero.
  * ======================================================= */
 const ANIMATIONS = {
-  none:      { label: 'Nessuna (ferma)',           from: { s: 1,    x: .5,  y: .5 },  to: { s: 1,    x: .5,  y: .5 } },
-  zoomIn:    { label: 'Zoom avanti',               from: { s: 1,    x: .5,  y: .5 },  to: { s: 1.3,  x: .5,  y: .5 } },
-  zoomOut:   { label: 'Zoom indietro',             from: { s: 1.3,  x: .5,  y: .5 },  to: { s: 1,    x: .5,  y: .5 } },
-  panRight:  { label: 'Scorri verso destra',       from: { s: 1.2,  x: 0,   y: .5 },  to: { s: 1.2,  x: 1,   y: .5 } },
-  panLeft:   { label: 'Scorri verso sinistra',     from: { s: 1.2,  x: 1,   y: .5 },  to: { s: 1.2,  x: 0,   y: .5 } },
-  panDown:   { label: 'Scorri verso il basso',     from: { s: 1.2,  x: .5,  y: 0 },   to: { s: 1.2,  x: .5,  y: 1 } },
-  panUp:     { label: "Scorri verso l'alto",       from: { s: 1.2,  x: .5,  y: 1 },   to: { s: 1.2,  x: .5,  y: 0 } },
-  zoomInTL:  { label: 'Zoom avanti in alto a sx',  from: { s: 1,    x: .5,  y: .5 },  to: { s: 1.4,  x: .15, y: .15 } },
-  zoomInBR:  { label: 'Zoom avanti in basso a dx', from: { s: 1,    x: .5,  y: .5 },  to: { s: 1.4,  x: .85, y: .85 } },
-  zoomOutTR: { label: 'Zoom indietro da alto a dx', from: { s: 1.4, x: .85, y: .15 }, to: { s: 1,    x: .5,  y: .5 } },
-  zoomOutBL: { label: 'Zoom indietro da basso a sx', from: { s: 1.4, x: .15, y: .85 }, to: { s: 1,   x: .5,  y: .5 } },
+  none:      { label: 'Nessuna (ferma)',             from: { s: 1,   dx: 0,     dy: 0 },     to: { s: 1,   dx: 0,     dy: 0 } },
+  zoomIn:    { label: 'Avvicinamento lento',         from: { s: .9,  dx: 0,     dy: 0 },     to: { s: 1,   dx: 0,     dy: 0 } },
+  zoomOut:   { label: 'Allontanamento lento',        from: { s: 1,   dx: 0,     dy: 0 },     to: { s: .9,  dx: 0,     dy: 0 } },
+  panRight:  { label: 'Scivola verso destra',        from: { s: .93, dx: -.025, dy: 0 },     to: { s: .93, dx: .025,  dy: 0 } },
+  panLeft:   { label: 'Scivola verso sinistra',      from: { s: .93, dx: .025,  dy: 0 },     to: { s: .93, dx: -.025, dy: 0 } },
+  panDown:   { label: 'Scivola verso il basso',      from: { s: .93, dx: 0,     dy: -.025 }, to: { s: .93, dx: 0,     dy: .025 } },
+  panUp:     { label: "Scivola verso l'alto",        from: { s: .93, dx: 0,     dy: .025 },  to: { s: .93, dx: 0,     dy: -.025 } },
+  zoomInTL:  { label: 'Avvicinamento verso alto-sx', from: { s: .9,  dx: .02,   dy: .02 },   to: { s: .97, dx: -.015, dy: -.015 } },
+  zoomInBR:  { label: 'Avvicinamento verso basso-dx', from: { s: .9, dx: -.02,  dy: -.02 },  to: { s: .97, dx: .015,  dy: .015 } },
+  zoomOutTR: { label: 'Allontanamento da alto-dx',   from: { s: .97, dx: .015,  dy: -.015 }, to: { s: .9,  dx: -.02,  dy: .02 } },
+  zoomOutBL: { label: 'Allontanamento da basso-sx',  from: { s: .97, dx: -.015, dy: .015 },  to: { s: .9,  dx: .02,   dy: -.02 } },
 };
 const MOVING_ANIMS = Object.keys(ANIMATIONS).filter(k => k !== 'none');
 const randomAnim = () => MOVING_ANIMS[Math.floor(Math.random() * MOVING_ANIMS.length)];
@@ -66,7 +70,8 @@ const settings = {
   photoDuration: 4,
   transition: 1,
   defaultAnim: 'random',
-  smoothAnim: false,
+  smoothAnim: true,
+  animStrength: 1,
 };
 const clips = [];  // foto e video in sequenza
 const music = [];  // tracce musicali
@@ -192,7 +197,7 @@ async function createImageClip(file) {
     duration: settings.photoDuration,
     transition: settings.transition,
     anim: settings.defaultAnim === 'random' ? randomAnim() : settings.defaultAnim,
-    fit: 'cover',
+    fit: 'contain',
   };
 }
 
@@ -358,7 +363,24 @@ function drawSource(src, sw, sh, fit, kb) {
   const W = canvas.width, H = canvas.height;
   const k = fit === 'cover' ? Math.max(W / sw, H / sh) : Math.min(W / sw, H / sh);
   const dw = sw * k * kb.s, dh = sh * k * kb.s;
-  g.drawImage(src, (W - dw) * kb.x, (H - dh) * kb.y, dw, dh);
+  // posizione centrata + spostamento, limitata così da non uscire dallo schermo
+  // (o, se la foto è più grande dello schermo, da non mostrare bordi vuoti)
+  const fitPos = (avail, size, d) => {
+    const pos = (avail - size) / 2 + d * avail;
+    return avail >= size ? clamp(pos, 0, avail - size) : clamp(pos, avail - size, 0);
+  };
+  g.drawImage(src, fitPos(W, dw, kb.dx), fitPos(H, dh, kb.dy), dw, dh);
+}
+
+// Calcola zoom/posizione della foto al punto p (0..1) dell'animazione
+function photoMotion(c, p) {
+  const a = ANIMATIONS[c.anim] || ANIMATIONS.none;
+  const k = settings.animStrength;
+  const sOf = v => 1 - (1 - v.s) * k;
+  let s = lerp(sOf(a.from), sOf(a.to), p);
+  // in modalità "riempi" lo zoom parte da 1 per non lasciare bordi vuoti
+  if (c.fit === 'cover') s /= Math.min(sOf(a.from), sOf(a.to));
+  return { s, dx: lerp(a.from.dx, a.to.dx, p) * k, dy: lerp(a.from.dy, a.to.dy, p) * k };
 }
 
 function render() {
@@ -397,13 +419,11 @@ function render() {
     g.fillStyle = '#000';
     g.fillRect(0, 0, W, H);
     if (c.type === 'image') {
-      const a = ANIMATIONS[c.anim] || ANIMATIONS.none;
       let p = clamp((t - L.start) / L.dur, 0, 1);
       if (settings.smoothAnim) p = easeInOut(p);
-      const kb = { s: lerp(a.from.s, a.to.s, p), x: lerp(a.from.x, a.to.x, p), y: lerp(a.from.y, a.to.y, p) };
-      drawSource(c.src, c.w, c.h, c.fit, kb);
+      drawSource(c.src, c.w, c.h, c.fit, photoMotion(c, p));
     } else if (c.el.readyState >= 2) {
-      drawSource(c.el, c.el.videoWidth, c.el.videoHeight, c.fit, { s: 1, x: .5, y: .5 });
+      drawSource(c.el, c.el.videoWidth, c.el.videoHeight, c.fit, { s: 1, dx: 0, dy: 0 });
     }
   });
   g.globalAlpha = 1;
@@ -711,6 +731,7 @@ function checkField(label, k, val) {
 function fmtOut(v, unit) {
   if (unit === '%') return `${Math.round(v * 100)}%`;
   if (unit === 't') return fmtTime(v);
+  if (unit === 'x') return `${Number(v).toFixed(2)}×`;
   return `${Number(v).toFixed(1)} s`;
 }
 function syncPanel(obj) {
@@ -783,7 +804,7 @@ function buildPanel() {
     ${idx > 0
       ? rangeField('Dissolvenza dalla clip precedente', 'transition', c.transition, 0, 3, 0.1)
       : '<p class="muted" style="font-size:12px">Prima clip: l\'inizio da nero si regola in ⚙ Progetto.</p>'}
-    ${selectField('Adattamento allo schermo', 'fit', { cover: 'Riempi lo schermo (ritaglia i bordi)', contain: 'Mostra intera (bande nere)' }, c.fit)}
+    ${selectField('Adattamento allo schermo', 'fit', { contain: 'Mostra intera (bordi neri se servono)', cover: 'Riempi lo schermo (taglia i bordi)' }, c.fit)}
   `;
   const nav = `
     <hr>
@@ -862,7 +883,11 @@ function buildProjectPanel() {
     <div class="section-title">Dissolvenze</div>
     ${checkField("Inizia con dissolvenza dal nero", 'fadeFromBlack', settings.fadeFromBlack)}
     ${checkField('Termina con dissolvenza verso il nero', 'fadeToBlack', settings.fadeToBlack)}
-    ${checkField('Movimento foto morbido (accelera/rallenta)', 'smoothAnim', settings.smoothAnim)}
+    <div class="section-title">Movimento delle foto</div>
+    ${rangeField('Intensità del movimento', 'animStrength', settings.animStrength, 0.25, 2.5, 0.05, 'x')}
+    <p class="muted" style="font-size:12px;margin-top:-6px">1× = leggero (consigliato). Più basso = quasi fermo.</p>
+    ${checkField('Movimento morbido (parte e si ferma dolcemente)', 'smoothAnim', settings.smoothAnim)}
+    <div class="btnrow"><button class="btn small" data-act="allContain">Mostra tutte le foto intere</button></div>
     <div class="section-title">Valori predefiniti per le nuove foto</div>
     ${rangeField('Durata foto', 'photoDuration', settings.photoDuration, 0.5, 30, 0.1)}
     ${rangeField('Dissolvenza tra le clip', 'transition', settings.transition, 0, 3, 0.1)}
@@ -947,6 +972,7 @@ const actions = {
     });
     refresh(); buildPanel(); toast('Impostazioni applicate a tutte le clip');
   },
+  allContain() { clips.forEach(x => { if (x.type === 'image') x.fit = 'contain'; }); refresh(); toast('Tutte le foto ora sono mostrate intere'); },
   musicToStart() { const m = selectedItem(); m.start = 0; refresh(); buildPanel(); },
   musicToCursor() { const m = selectedItem(); m.start = Math.round(player.t * 10) / 10; refresh(); buildPanel(); },
 };
