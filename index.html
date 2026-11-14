@@ -5,17 +5,65 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Editor Video</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Icone (richiamate con <use href="#i-nome">) -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+    <defs>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+      <symbol id="i-film" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2"/><path d="M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5M2 12h20"/></symbol>
+      <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+      <symbol id="i-file-plus" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 12v6M9 15h6"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z" fill="currentColor"/></symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor"/></symbol>
+      <symbol id="i-skip-start" viewBox="0 0 24 24"><path d="M19 19.5 9 12l10-7.5z" fill="currentColor"/><path d="M5 19V5"/></symbol>
+      <symbol id="i-skip-end" viewBox="0 0 24 24"><path d="M5 4.5 15 12 5 19.5z" fill="currentColor"/><path d="M19 5v14"/></symbol>
+      <symbol id="i-prev" viewBox="0 0 24 24"><path d="M11 18.5 3 12l8-6.5zM21 18.5 13 12l8-6.5z" fill="currentColor"/></symbol>
+      <symbol id="i-next" viewBox="0 0 24 24"><path d="m13 18.5 8-6.5-8-6.5zM3 18.5l8-6.5-8-6.5z" fill="currentColor"/></symbol>
+      <symbol id="i-zoom-in" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/></symbol>
+      <symbol id="i-zoom-out" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M8 11h6"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+      <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+      <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+      <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></symbol>
+      <symbol id="i-mark-in" viewBox="0 0 24 24"><path d="M8 4H5v16h3M20 12h-9M14 9l-3 3 3 3"/></symbol>
+      <symbol id="i-mark-out" viewBox="0 0 24 24"><path d="M16 4h3v16h-3M4 12h9M10 9l3 3-3 3"/></symbol>
+      <symbol id="i-volume-x" viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+      <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+      <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></symbol>
+      <symbol id="i-wand" viewBox="0 0 24 24"><path d="m3 21 12-12M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8 19 13M17.8 6.2 19 5M12.2 6.2 11 5"/></symbol>
+      <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M12 8v13M8 3h8l-4 5z"/></symbol>
+      <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+      <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+      <symbol id="i-logo" viewBox="0 0 64 64"><rect x="2" y="10" width="60" height="44" rx="10" fill="currentColor" stroke="none"/><path d="M26 25 L44 36 L26 47 Z" fill="#fff" stroke="none"/><g fill="#fff" stroke="none" opacity=".75"><rect x="9" y="14" width="7" height="4" rx="1"/><rect x="22" y="14" width="7" height="4" rx="1"/><rect x="35" y="14" width="7" height="4" rx="1"/><rect x="48" y="14" width="7" height="4" rx="1"/></g></symbol>
+    </defs>
+  </svg>
+
   <header class="topbar">
-    <div class="brand">🎬 Editor Video <span id="saveState" class="save-state"></span></div>
+    <div class="brand">
+      <svg class="logo"><use href="#i-logo"/></svg>
+      <span class="brand-name">Editor Video</span>
+      <span id="saveState" class="save-state"></span>
+    </div>
     <div class="actions">
-      <button id="btnAddMedia" class="btn">＋ Foto / Video</button>
-      <button id="btnAddMusic" class="btn">♪ Musica</button>
-      <button id="btnNew" class="btn ghost" title="Inizia un nuovo progetto vuoto">🗋 Nuovo</button>
-      <button id="btnProject" class="btn ghost">⚙ Progetto</button>
-      <button id="btnExport" class="btn primary">⬇ Esporta video</button>
+      <div class="btn-group">
+        <button id="btnAddMedia" class="btn" title="Aggiungi foto e video"><svg class="ic"><use href="#i-image"/></svg>Foto e video</button>
+        <button id="btnAddMusic" class="btn" title="Aggiungi una o più tracce musicali"><svg class="ic"><use href="#i-music"/></svg>Musica</button>
+      </div>
+      <span class="divider"></span>
+      <button id="btnNew" class="btn ghost" title="Inizia un nuovo progetto vuoto"><svg class="ic"><use href="#i-file-plus"/></svg>Nuovo</button>
+      <button id="btnProject" class="btn ghost" title="Impostazioni del progetto"><svg class="ic"><use href="#i-sliders"/></svg>Progetto</button>
+      <button id="btnExport" class="btn primary"><svg class="ic"><use href="#i-download"/></svg>Esporta video</button>
     </div>
     <input id="fileMedia" type="file" accept="image/*,video/*" multiple hidden>
     <input id="fileMusic" type="file" accept="audio/*" multiple hidden>
@@ -25,12 +73,29 @@
     <section class="viewer">
       <div id="stage" class="stage">
         <canvas id="preview" width="1280" height="720"></canvas>
+        <div id="emptyState" class="empty-state">
+          <div class="empty-icon"><svg class="ic"><use href="#i-upload"/></svg></div>
+          <h2>Inizia il tuo video</h2>
+          <p>Aggiungi foto e video, oppure trascinali in questa finestra.<br>Potrai poi riordinarli, animarli e aggiungere la musica.</p>
+          <div class="empty-actions">
+            <button class="btn primary" data-click="#fileMedia"><svg class="ic"><use href="#i-image"/></svg>Aggiungi foto e video</button>
+            <button class="btn" data-click="#fileMusic"><svg class="ic"><use href="#i-music"/></svg>Aggiungi musica</button>
+          </div>
+        </div>
       </div>
       <div class="transport">
-        <button id="btnStart" class="icon" title="Vai all'inizio">⏮</button>
-        <button id="btnPlay" class="icon big" title="Play / Pausa (spazio)">▶</button>
-        <span id="timeLabel" class="time">00:00.0 / 00:00.0</span>
-        <input id="seekBar" type="range" min="0" max="1000" value="0" step="1">
+        <input id="seekBar" class="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Posizione nel video">
+        <div class="transport-row">
+          <div class="tr-left"><span id="timeLabel" class="time">00:00.0 / 00:00.0</span></div>
+          <div class="tr-center">
+            <button id="btnStart" class="icon-btn" title="Vai all'inizio"><svg class="ic"><use href="#i-skip-start"/></svg></button>
+            <button id="btnPrevClip" class="icon-btn" title="Clip precedente (Shift + ←)"><svg class="ic"><use href="#i-prev"/></svg></button>
+            <button id="btnPlay" class="play-btn" title="Play / Pausa (spazio)"><svg class="ic"><use href="#i-play"/></svg></button>
+            <button id="btnNextClip" class="icon-btn" title="Clip successiva (Shift + →)"><svg class="ic"><use href="#i-next"/></svg></button>
+            <button id="btnEnd" class="icon-btn" title="Vai alla fine"><svg class="ic"><use href="#i-skip-end"/></svg></button>
+          </div>
+          <div class="tr-right"><span id="outInfo" class="chip"></span></div>
+        </div>
       </div>
     </section>
 
@@ -39,14 +104,22 @@
 
   <section class="timeline">
     <div class="tl-toolbar">
-      <span class="hint">Trascina le clip per riordinarle · trascina la musica per spostarla · trascina i file qui sopra per importarli</span>
-      <label class="zoom">Zoom <input id="zoom" type="range" min="8" max="160" value="40"></label>
+      <div class="tl-title">
+        <strong>Timeline</strong>
+        <span id="tlStats" class="muted"></span>
+      </div>
+      <span class="hint">Trascina le clip per riordinarle · trascina la musica per spostarla · rotellina per scorrere</span>
+      <div class="zoom">
+        <button id="zoomOut" class="icon-btn sm" title="Riduci (Ctrl + rotellina)"><svg class="ic"><use href="#i-zoom-out"/></svg></button>
+        <input id="zoom" type="range" min="8" max="160" value="40" aria-label="Zoom timeline">
+        <button id="zoomIn" class="icon-btn sm" title="Ingrandisci (Ctrl + rotellina)"><svg class="ic"><use href="#i-zoom-in"/></svg></button>
+      </div>
     </div>
     <div class="tl-body">
       <div class="tl-labels">
         <div class="lbl ruler-lbl"></div>
-        <div class="lbl">🎞 Video</div>
-        <div class="lbl">♪ Musica</div>
+        <div class="lbl"><svg class="ic"><use href="#i-film"/></svg>Video</div>
+        <div class="lbl lbl-music"><svg class="ic"><use href="#i-music"/></svg>Musica</div>
       </div>
       <div id="tlScroll" class="tl-scroll">
         <div id="tlInner" class="tl-inner">
@@ -61,11 +134,19 @@
   </section>
 
   <div id="mediaPool" class="media-pool" aria-hidden="true"></div>
-  <div id="dropOverlay" class="drop-overlay" hidden>Rilascia qui foto, video o musica</div>
+  <div id="dropOverlay" class="drop-overlay" hidden>
+    <div class="drop-card"><svg class="ic"><use href="#i-upload"/></svg>Rilascia qui foto, video o musica</div>
+  </div>
   <div id="toast" class="toast" hidden></div>
 
   <dialog id="exportDlg" class="dialog">
-    <h2>Esporta video</h2>
+    <div class="dlg-head">
+      <div class="dlg-icon"><svg class="ic"><use href="#i-download"/></svg></div>
+      <div>
+        <h2>Esporta video</h2>
+        <p id="expInfo" class="muted"></p>
+      </div>
+    </div>
     <div id="exportSetup">
       <label class="field"><span>Modalità</span>
         <select id="expMode">
@@ -81,7 +162,6 @@
           <option value="16000000">Massima (16 Mbit/s)</option>
         </select>
       </label>
-      <p id="expInfo" class="muted"></p>
       <p class="note" id="expNoteFast">Il video viene calcolato fotogramma per fotogramma: le parti con le foto
         vanno molto più veloci del tempo reale. Il file creato è un <b>MP4</b>.
         Su Chrome ed Edge ti verrà chiesto <b>dove salvarlo</b>: il video viene scritto direttamente lì,
@@ -90,7 +170,7 @@
         Tieni questa scheda <b>aperta e in primo piano</b> finché non è finita.</p>
       <div class="dlg-actions">
         <button id="expCancelSetup" class="btn ghost">Annulla</button>
-        <button id="expStart" class="btn primary">Avvia esportazione</button>
+        <button id="expStart" class="btn primary"><svg class="ic"><use href="#i-download"/></svg>Avvia esportazione</button>
       </div>
     </div>
     <div id="exportRun" hidden>
@@ -99,11 +179,13 @@
       <div class="dlg-actions"><button id="expAbort" class="btn ghost">Interrompi</button></div>
     </div>
     <div id="exportDone" hidden>
-      <p>✅ Video pronto!</p>
-      <p id="expResult" class="muted"></p>
+      <div class="done-box">
+        <svg class="ic"><use href="#i-check-circle"/></svg>
+        <div><strong>Video pronto!</strong><p id="expResult" class="muted"></p></div>
+      </div>
       <div class="dlg-actions">
         <button id="expClose" class="btn ghost">Chiudi</button>
-        <a id="expDownload" class="btn primary" download>Scarica di nuovo</a>
+        <a id="expDownload" class="btn primary" download><svg class="ic"><use href="#i-download"/></svg>Scarica di nuovo</a>
       </div>
     </div>
   </dialog>

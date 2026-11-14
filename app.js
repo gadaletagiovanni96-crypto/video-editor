@@ -24,6 +24,17 @@ function fmtTime(t) {
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// Icona dal set definito in index.html
+const icon = (name, cls = '') => `<svg class="ic ${cls}"><use href="#i-${name}"/></svg>`;
+
+// Colora la parte "piena" dei cursori
+function paintRange(el) {
+  const min = Number(el.min) || 0, max = Number(el.max) || 100;
+  const p = max > min ? (Number(el.value) - min) / (max - min) * 100 : 0;
+  el.style.setProperty('--p', `${clamp(p, 0, 100)}%`);
+}
+const paintRanges = (root = document) => root.querySelectorAll('input[type=range]').forEach(paintRange);
+
 let toastTimer;
 function toast(msg, ms = 3000) {
   const el = $('#toast');
@@ -321,7 +332,12 @@ const newId = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() :
 const pendingFiles = new Map(); // fileId -> scrittura in corso
 let storageWarned = false, persistAsked = false;
 
-function setSaveState(txt) { const el = $('#saveState'); if (el) el.textContent = txt; }
+function setSaveState(txt) {
+  const el = $('#saveState');
+  if (!el) return;
+  el.textContent = txt.replace(/^[✓⚠]\s*/, '');
+  el.dataset.state = /^⚠/.test(txt) ? 'err' : /^✓/.test(txt) ? 'ok' : 'busy';
+}
 
 // Salva una copia del file e restituisce subito il suo identificativo
 function storeFile(file) {
@@ -389,11 +405,12 @@ async function restoreProject() {
   if (!data) return;
   Object.assign(settings, data.settings || {});
   applyCanvasSize();
-  if (data.pps) { pps = data.pps; $('#zoom').value = pps; }
+  if (data.pps) { pps = data.pps; $('#zoom').value = pps; paintRange($('#zoom')); }
   if (!data.clips.length && !data.music.length) { buildPanel(); return; }
 
   restoring = true;
   loadingCount++;
+  $('#emptyState').hidden = true;
   ensureAudio();
   let missing = 0;
   const total0 = data.clips.length + data.music.length;
@@ -589,13 +606,6 @@ function render() {
   g.fillStyle = '#000';
   g.fillRect(0, 0, W, H);
 
-  if (!clips.length) {
-    g.fillStyle = '#8a91a0';
-    g.font = `${Math.round(H / 22)}px system-ui, sans-serif`;
-    g.textAlign = 'center';
-    g.fillText('Aggiungi foto e video con "＋ Foto / Video"', W / 2, H / 2);
-    g.fillText('oppure trascina i file nella finestra', W / 2, H / 2 + H / 16);
-  }
 
   layout.forEach((L, i) => {
     const c = L.clip;
@@ -703,7 +713,7 @@ function play() {
   player.playing = true;
   player.last = performance.now();
   syncMedia(true);
-  $('#btnPlay').textContent = '⏸';
+  $('#btnPlay').innerHTML = icon('pause');
   player.raf = requestAnimationFrame(tick);
 }
 function stopPlayback() {
@@ -713,7 +723,7 @@ function stopPlayback() {
   for (const m of music) if (!m.el.paused) m.el.pause();
   for (const m of music) setGain(m.audio.gain, 0);
   for (const c of clips) if (c.audio) setGain(c.audio.gain, 0);
-  $('#btnPlay').textContent = '▶';
+  $('#btnPlay').innerHTML = icon('play');
 }
 function pause() {
   stopPlayback();
@@ -732,6 +742,7 @@ function updateTimeUI() {
   $('#timeLabel').textContent = `${fmtTime(player.t)} / ${fmtTime(total)}`;
   const sb = $('#seekBar');
   if (!seekDragging) sb.value = total ? Math.round(player.t / total * 1000) : 0;
+  paintRange(sb);
   const x = player.t * pps;
   $('#playhead').style.transform = `translateX(${x}px)`;
   if (player.playing) {
@@ -743,6 +754,10 @@ function updateTimeUI() {
 /* =========================================================
  * Dimensioni del video
  * ======================================================= */
+function updateOutInfo() {
+  const el = $('#outInfo');
+  if (el) el.textContent = `${canvas.width}×${canvas.height} · ${settings.fps} fps`;
+}
 function applyCanvasSize() {
   const q = settings.quality;
   let W, H;
@@ -754,6 +769,7 @@ function applyCanvasSize() {
   }
   canvas.width = even(W);
   canvas.height = even(H);
+  updateOutInfo();
   requestRender();
 }
 
@@ -789,7 +805,7 @@ function renderTimeline() {
     d.style.backgroundImage = `url(${c.thumb})`;
     d.draggable = true;
     d.dataset.id = c.id;
-    const badge = c.type === 'image' ? '🖼' : (c.muted ? '🎞 🔇' : '🎞');
+    const badge = c.type === 'image' ? icon('image') : icon('film') + (c.muted ? icon('volume-x', 'warn') : '');
     d.innerHTML =
       (L.tr > 0 ? `<div class="trans" style="width:${L.tr * pps}px" title="Dissolvenza ${L.tr.toFixed(1)} s"></div>` : '') +
       `<span class="badge">${badge}</span>` +
@@ -818,11 +834,16 @@ function renderTimeline() {
     const len = m.out - m.in;
     d.style.left = `${m.start * pps}px`;
     d.style.width = `${Math.max(4, len * pps)}px`;
-    d.innerHTML = `<span class="label">♪ ${esc(m.name)} · ${len.toFixed(1)}s</span>`;
+    d.innerHTML = `<span class="label">${icon('music')} ${esc(m.name)} · ${len.toFixed(1)}s</span>`;
     d.title = 'Trascina per spostare la traccia nel tempo';
     attachMusicDrag(d, m);
     tm.appendChild(d);
   }
+  // stato vuoto e riepilogo
+  $('#emptyState').hidden = clips.length > 0 || loadingCount > 0;
+  $('#tlStats').textContent = clips.length || music.length
+    ? `${clips.length} clip · ${music.length} ${music.length === 1 ? 'traccia' : 'tracce'} · ${fmtTime(total)}`
+    : '';
   updateTimeUI();
 }
 
@@ -938,7 +959,7 @@ function selectField(label, k, options, val) {
   return `<label class="field"><span>${label}</span><select data-k="${k}">${opts}</select></label>`;
 }
 function checkField(label, k, val) {
-  return `<label class="check"><input type="checkbox" data-k="${k}"${val ? ' checked' : ''}> ${label}</label>`;
+  return `<label class="check"><input type="checkbox" data-k="${k}"${val ? ' checked' : ''}><span>${label}</span></label>`;
 }
 function fmtOut(v, unit) {
   if (unit === '%') return `${Math.round(v * 100)}%`;
@@ -952,8 +973,20 @@ function syncPanel(obj) {
     const v = obj[inp.dataset.k];
     if (inp.type === 'checkbox') inp.checked = !!v;
     else if (String(inp.value) !== String(v)) inp.value = v;
+    if (inp.type === 'range') paintRange(inp);
   });
 }
+// Intestazione e riquadri del pannello
+function panelHead({ ic, kind = '', title, sub, thumb }) {
+  return `<div class="ph">
+    ${thumb ? `<img class="ph-thumb" src="${thumb}" alt="">` : ''}
+    <div class="ph-title"><div class="ph-icon ${kind}">${icon(ic)}</div>
+      <div><h3>${title}</h3><div class="sub" title="${esc(sub)}">${esc(sub)}</div></div></div>
+  </div>`;
+}
+const group = (title, body) => `<section class="group">${title ? `<h4>${title}</h4>` : ''}${body}</section>`;
+const hint = txt => `<p class="hint-text">${txt}</p>`;
+const actBtn = (act, ic, label, extra = '') => `<button class="btn small" data-act="${act}" ${extra}>${icon(ic)}${label}</button>`;
 function bindPanel(obj, onChange) {
   panel.querySelectorAll('[data-k]').forEach(inp => {
     const k = inp.dataset.k;
@@ -984,23 +1017,22 @@ function buildPanel() {
     const m = item;
     const maxStart = Math.max(Math.ceil(total), Math.ceil(m.start) + 1, 1);
     panel.innerHTML = `
-      <h3>♪ Traccia musicale</h3>
-      <div class="sub">${esc(m.name)} · durata originale ${fmtTime(m.srcDuration)}</div>
-      ${rangeField('Inizia nel video al secondo', 'start', m.start, 0, maxStart, 0.1, 't')}
-      <div class="section-title">Taglio della traccia</div>
-      ${rangeField('Parti dal punto', 'in', m.in, 0, m.srcDuration, 0.1, 't')}
-      ${rangeField('Fermati al punto', 'out', m.out, 0, m.srcDuration, 0.1, 't')}
-      <div class="section-title">Volume e dissolvenze</div>
-      ${rangeField('Volume', 'volume', m.volume, 0, 1.5, 0.01, '%')}
-      ${rangeField('Dissolvenza in entrata', 'fadeIn', m.fadeIn, 0, 10, 0.1)}
-      ${rangeField('Dissolvenza in uscita', 'fadeOut', m.fadeOut, 0, 10, 0.1)}
-      <p class="muted" style="font-size:12px">La musica viene tagliata automaticamente alla fine del video.</p>
-      <div class="btnrow">
-        <button class="btn small" data-act="musicToStart">Allinea all'inizio</button>
-        <button class="btn small" data-act="musicToCursor">Inizia dal cursore</button>
-      </div>
-      <hr>
-      <div class="btnrow"><button class="btn danger" data-act="remove">🗑 Elimina traccia</button></div>`;
+      ${panelHead({ ic: 'music', kind: 'music', title: 'Traccia musicale', sub: `${m.name} · ${fmtTime(m.srcDuration)}` })}
+      ${group('Posizione', `
+        ${rangeField('Inizia nel video al secondo', 'start', m.start, 0, maxStart, 0.1, 't')}
+        <div class="btnrow grid">
+          ${actBtn('musicToStart', 'skip-start', "All'inizio")}
+          ${actBtn('musicToCursor', 'cursor', 'Dal cursore')}
+        </div>`)}
+      ${group('Taglio della traccia', `
+        ${rangeField('Parti dal punto', 'in', m.in, 0, m.srcDuration, 0.1, 't')}
+        ${rangeField('Fermati al punto', 'out', m.out, 0, m.srcDuration, 0.1, 't')}
+        ${hint('La musica viene tagliata automaticamente alla fine del video.')}`)}
+      ${group('Volume e dissolvenze', `
+        ${rangeField('Volume', 'volume', m.volume, 0, 1.5, 0.01, '%')}
+        ${rangeField('Dissolvenza in entrata', 'fadeIn', m.fadeIn, 0, 10, 0.1)}
+        ${rangeField('Dissolvenza in uscita', 'fadeOut', m.fadeOut, 0, 10, 0.1)}`)}
+      <div class="panel-actions"><button class="btn danger" data-act="remove">${icon('trash')}Elimina traccia</button></div>`;
     bindPanel(m, k => {
       if (k === 'in') m.in = Math.min(m.in, m.out - 0.5);
       if (k === 'out') m.out = Math.max(m.out, m.in + 0.5);
@@ -1012,58 +1044,58 @@ function buildPanel() {
 
   const c = item;
   const idx = clips.indexOf(c);
-  const common = `
-    ${idx > 0
-      ? rangeField('Dissolvenza dalla clip precedente', 'transition', c.transition, 0, 3, 0.1)
-      : '<p class="muted" style="font-size:12px">Prima clip: l\'inizio da nero si regola in ⚙ Progetto.</p>'}
-    ${selectField('Adattamento allo schermo', 'fit', { contain: 'Mostra intera (bordi neri se servono)', cover: 'Riempi lo schermo (taglia i bordi)' }, c.fit)}
-  `;
-  const nav = `
-    <hr>
-    <div class="btnrow">
-      <button class="btn small" data-act="moveLeft" ${idx === 0 ? 'disabled' : ''}>◀ Sposta prima</button>
-      <button class="btn small" data-act="moveRight" ${idx === clips.length - 1 ? 'disabled' : ''}>Sposta dopo ▶</button>
-      <button class="btn small" data-act="duplicate">⧉ Duplica</button>
+  const transition = idx > 0
+    ? rangeField('Dissolvenza dalla clip precedente', 'transition', c.transition, 0, 3, 0.1)
+    : hint("È la prima clip: la dissolvenza dal nero iniziale si regola nelle impostazioni del <b>Progetto</b>.");
+  const fit = selectField('Adattamento allo schermo', 'fit', { contain: 'Mostra intera (bordi neri se servono)', cover: 'Riempi lo schermo (taglia i bordi)' }, c.fit);
+  const arrange = group('Disposizione', `
+    <div class="btnrow grid">
+      ${actBtn('moveLeft', 'arrow-left', 'Sposta prima', idx === 0 ? 'disabled' : '')}
+      ${actBtn('moveRight', 'arrow-right', 'Sposta dopo', idx === clips.length - 1 ? 'disabled' : '')}
     </div>
-    <div class="btnrow"><button class="btn danger" data-act="remove">🗑 Elimina dal video</button></div>`;
+    <div class="btnrow grid">
+      ${actBtn('duplicate', 'copy', 'Duplica')}
+      <button class="btn small danger" data-act="remove">${icon('trash')}Elimina</button>
+    </div>`);
 
   if (c.type === 'image') {
     const animOpts = Object.fromEntries(Object.entries(ANIMATIONS).map(([k, a]) => [k, a.label]));
     panel.innerHTML = `
-      <img class="thumb" src="${c.thumb}" alt="">
-      <h3>🖼 Foto</h3>
-      <div class="sub">${esc(c.name)} · ${c.w}×${c.h}</div>
-      ${rangeField('Durata sullo schermo', 'duration', c.duration, 0.5, 30, 0.1)}
-      ${selectField('Animazione (movimento)', 'anim', animOpts, c.anim)}
-      ${common}
-      <div class="section-title">Applica a tutte le foto</div>
-      <div class="btnrow">
-        <button class="btn small" data-act="allDuration">Stessa durata</button>
-        <button class="btn small" data-act="allAnim">Stessa animazione</button>
-        <button class="btn small" data-act="allRandom">Animazioni casuali</button>
-        <button class="btn small" data-act="allTransition">Stessa dissolvenza</button>
-      </div>
-      ${nav}`;
+      ${panelHead({ ic: 'image', kind: 'photo', title: 'Foto', sub: `${c.name} · ${c.w}×${c.h}`, thumb: c.thumb })}
+      ${group('Tempo', `
+        ${rangeField('Durata sullo schermo', 'duration', c.duration, 0.5, 30, 0.1)}
+        ${transition}`)}
+      ${group('Aspetto e movimento', `
+        ${selectField('Animazione', 'anim', animOpts, c.anim)}
+        ${fit}`)}
+      ${group('Applica a tutte le foto', `
+        ${hint('Copia le impostazioni di questa foto su tutte le altre.')}
+        <div class="btnrow grid">
+          ${actBtn('allDuration', 'clock', 'Durata', 'title="Dai a tutte le foto la durata di questa"')}
+          ${actBtn('allTransition', 'wand', 'Dissolvenza', 'title="Dai a tutte le clip la dissolvenza di questa"')}
+          ${actBtn('allAnim', 'copy', 'Animazione', 'title="Dai a tutte le foto l\'animazione di questa"')}
+          ${actBtn('allRandom', 'shuffle', 'Casuali', 'title="Assegna animazioni casuali a tutte le foto"')}
+        </div>`)}
+      ${arrange}`;
   } else {
     panel.innerHTML = `
-      <img class="thumb" src="${c.thumb}" alt="">
-      <h3>🎞 Video</h3>
-      <div class="sub">${esc(c.name)} · ${c.w}×${c.h} · ${fmtTime(c.srcDuration)}</div>
-      <div class="section-title">Taglio</div>
-      ${rangeField('Inizio', 'in', c.in, 0, c.srcDuration, 0.05, 't')}
-      ${rangeField('Fine', 'out', c.out, 0, c.srcDuration, 0.05, 't')}
-      <div class="btnrow">
-        <button class="btn small" data-act="setIn">⇤ Inizio al cursore</button>
-        <button class="btn small" data-act="setOut">Fine al cursore ⇥</button>
-        <button class="btn small" data-act="split">✂ Dividi al cursore</button>
-      </div>
-      <p class="muted" style="font-size:12px">Durata nel video: <b id="vidLen">${(c.out - c.in).toFixed(1)} s</b></p>
-      <div class="section-title">Audio</div>
-      ${checkField('Rimuovi audio del video (muto)', 'muted', c.muted)}
-      ${rangeField('Volume', 'volume', c.volume, 0, 1.5, 0.01, '%')}
-      <div class="section-title">Aspetto</div>
-      ${common}
-      ${nav}`;
+      ${panelHead({ ic: 'film', kind: 'video', title: 'Video', sub: `${c.name} · ${c.w}×${c.h} · ${fmtTime(c.srcDuration)}`, thumb: c.thumb })}
+      ${group('Taglio', `
+        ${rangeField('Inizio', 'in', c.in, 0, c.srcDuration, 0.05, 't')}
+        ${rangeField('Fine', 'out', c.out, 0, c.srcDuration, 0.05, 't')}
+        ${hint(`Durata nel video: <b id="vidLen">${(c.out - c.in).toFixed(1)} s</b>`)}
+        <div class="btnrow grid">
+          ${actBtn('setIn', 'mark-in', 'Inizio qui')}
+          ${actBtn('setOut', 'mark-out', 'Fine qui')}
+        </div>
+        <div class="btnrow">${actBtn('split', 'scissors', 'Dividi al cursore', 'style="flex:1;justify-content:center"')}</div>`)}
+      ${group('Audio', `
+        ${checkField('Rimuovi audio del video', 'muted', c.muted)}
+        ${rangeField('Volume', 'volume', c.volume, 0, 1.5, 0.01, '%')}`)}
+      ${group('Transizione e aspetto', `
+        ${transition}
+        ${fit}`)}
+      ${arrange}`;
   }
 
   bindPanel(c, k => {
@@ -1087,38 +1119,48 @@ function buildProjectPanel() {
   const nPhotos = clips.filter(c => c.type === 'image').length;
   const nVideos = clips.length - nPhotos;
   panel.innerHTML = `
-    <h3>⚙ Impostazioni progetto</h3>
-    <div class="sub">${nPhotos} foto · ${nVideos} video · ${music.length} tracce musicali · durata ${fmtTime(total)}</div>
-    ${selectField('Formato', 'aspect', { '16:9': 'Orizzontale 16:9 (YouTube, TV)', '9:16': 'Verticale 9:16 (Storie, Reels, TikTok)', '1:1': 'Quadrato 1:1', '4:3': 'Classico 4:3' }, settings.aspect)}
-    ${selectField('Risoluzione', 'quality', { 480: '480p (leggero)', 720: '720p HD', 1080: '1080p Full HD' }, settings.quality)}
-    ${selectField('Fotogrammi al secondo', 'fps', { 25: '25', 30: '30', 60: '60' }, settings.fps)}
-    <div class="section-title">Dissolvenze</div>
-    ${checkField("Inizia con dissolvenza dal nero", 'fadeFromBlack', settings.fadeFromBlack)}
-    ${checkField('Termina con dissolvenza verso il nero', 'fadeToBlack', settings.fadeToBlack)}
-    <div class="section-title">Movimento delle foto</div>
-    ${rangeField('Intensità del movimento', 'animStrength', settings.animStrength, 0.25, 2.5, 0.05, 'x')}
-    <p class="muted" style="font-size:12px;margin-top:-6px">1× = leggero (consigliato). Più basso = quasi fermo.</p>
-    ${checkField('Movimento morbido (parte e si ferma dolcemente)', 'smoothAnim', settings.smoothAnim)}
-    ${selectField('Adattamento delle foto allo schermo', 'photoFit', {
-      contain: 'Mostra tutte le foto intere (bordi neri se servono)',
-      coverLandscape: 'Riempi lo schermo solo con le foto orizzontali (le verticali restano intere)',
-      cover: 'Riempi lo schermo con tutte le foto (taglia i bordi)',
-    }, settings.photoFit)}
-    <p class="muted" style="font-size:12px;margin-top:-6px">Vale per tutte le foto, anche quelle aggiunte dopo. Puoi comunque cambiarla per una singola foto.</p>
-    <div class="section-title">Valori predefiniti per le nuove foto</div>
-    ${rangeField('Durata foto', 'photoDuration', settings.photoDuration, 0.5, 30, 0.1)}
-    ${rangeField('Dissolvenza tra le clip', 'transition', settings.transition, 0, 3, 0.1)}
-    ${selectField('Animazione', 'defaultAnim', animOpts, settings.defaultAnim)}
-    <div class="btnrow">
-      <button class="btn small" data-act="applyDefaultsAll">Applica a tutte le clip</button>
+    ${panelHead({ ic: 'sliders', title: 'Progetto', sub: 'Impostazioni generali del video' })}
+    <div class="stats">
+      <div class="stat"><b>${nPhotos}</b><span>foto</span></div>
+      <div class="stat"><b>${nVideos}</b><span>video</span></div>
+      <div class="stat"><b>${music.length}</b><span>musica</span></div>
+      <div class="stat"><b>${fmtTime(total).replace(/\.\d$/, '')}</b><span>durata</span></div>
     </div>
-    <hr>
-    <p class="empty-hint">Suggerimento: clicca una clip nella timeline per modificarla.
-      Scorciatoie: <b>spazio</b> = play/pausa, <b>rotellina</b> sulla timeline = scorri le clip (<b>Ctrl</b> + rotellina = zoom), <b>Canc</b> = elimina la clip selezionata,
-      <b>← →</b> = sposta il cursore, <b>Shift + ← →</b> = clip precedente/successiva.</p>`;
+    ${group('Formato video', `
+      ${selectField('Formato', 'aspect', { '16:9': 'Orizzontale 16:9 (YouTube, TV)', '9:16': 'Verticale 9:16 (Storie, Reels, TikTok)', '1:1': 'Quadrato 1:1', '4:3': 'Classico 4:3' }, settings.aspect)}
+      ${selectField('Risoluzione', 'quality', { 480: '480p (leggero)', 720: '720p HD', 1080: '1080p Full HD' }, settings.quality)}
+      ${selectField('Fotogrammi al secondo', 'fps', { 25: '25', 30: '30', 60: '60' }, settings.fps)}`)}
+    ${group('Dissolvenze', `
+      ${checkField('Inizia con dissolvenza dal nero', 'fadeFromBlack', settings.fadeFromBlack)}
+      ${checkField('Termina con dissolvenza verso il nero', 'fadeToBlack', settings.fadeToBlack)}`)}
+    ${group('Foto', `
+      ${selectField('Adattamento allo schermo', 'photoFit', {
+        contain: 'Mostra tutte le foto intere (bordi neri se servono)',
+        coverLandscape: 'Riempi lo schermo solo con le foto orizzontali (le verticali restano intere)',
+        cover: 'Riempi lo schermo con tutte le foto (taglia i bordi)',
+      }, settings.photoFit)}
+      ${hint('Vale per tutte le foto, anche quelle aggiunte dopo. Puoi comunque cambiarla per una singola foto.')}
+      ${rangeField('Intensità del movimento', 'animStrength', settings.animStrength, 0.25, 2.5, 0.05, 'x')}
+      ${hint('1× = leggero (consigliato). Più basso = quasi fermo.')}
+      ${checkField('Movimento morbido (parte e si ferma dolcemente)', 'smoothAnim', settings.smoothAnim)}`)}
+    ${group('Valori per le nuove foto', `
+      ${rangeField('Durata foto', 'photoDuration', settings.photoDuration, 0.5, 30, 0.1)}
+      ${rangeField('Dissolvenza tra le clip', 'transition', settings.transition, 0, 3, 0.1)}
+      ${selectField('Animazione', 'defaultAnim', animOpts, settings.defaultAnim)}
+      <div class="btnrow">${actBtn('applyDefaultsAll', 'wand', 'Applica a tutte le clip', 'style="flex:1;justify-content:center"')}</div>`)}
+    ${group('Scorciatoie da tastiera', `
+      <div class="kbd-list">
+        <kbd>Spazio</kbd><span>Play / pausa</span>
+        <kbd>← →</kbd><span>Sposta il cursore</span>
+        <kbd>Shift + ← →</kbd><span>Clip precedente / successiva</span>
+        <kbd>Canc</kbd><span>Elimina la clip selezionata</span>
+        <kbd>Rotellina</kbd><span>Scorre la timeline</span>
+        <kbd>Ctrl + rotellina</kbd><span>Zoom della timeline</span>
+      </div>`)}`;
   bindPanel(settings, k => {
     scheduleSave();
     if (k === 'aspect' || k === 'quality') applyCanvasSize();
+    if (k === 'fps') updateOutInfo();
     if (k === 'photoFit') {
       clips.forEach(x => { if (x.type === 'image') x.fit = photoFitFor(x.w, x.h); });
       refresh();
@@ -2001,6 +2043,19 @@ function setupUI() {
   $('#btnExport').onclick = openExport;
   $('#btnPlay').onclick = togglePlay;
   $('#btnStart').onclick = () => seek(0);
+  $('#btnEnd').onclick = () => seek(total);
+  $('#btnPrevClip').onclick = () => jumpClip(-1);
+  $('#btnNextClip').onclick = () => jumpClip(1);
+  document.querySelectorAll('[data-click]').forEach(b => { b.onclick = () => $(b.dataset.click).click(); });
+  const zoomBy = f => {
+    const z = $('#zoom');
+    z.value = clamp(Number(z.value) * f, Number(z.min), Number(z.max));
+    z.dispatchEvent(new Event('input'));
+  };
+  $('#zoomIn').onclick = () => zoomBy(1.25);
+  $('#zoomOut').onclick = () => zoomBy(1 / 1.25);
+  // cursori: colora la parte già "piena"
+  document.addEventListener('input', e => { if (e.target.type === 'range') paintRange(e.target); });
 
   const sb = $('#seekBar');
   sb.addEventListener('input', () => { seekDragging = true; seek(sb.value / 1000 * total); });
@@ -2021,6 +2076,7 @@ function setupUI() {
       if (Math.abs(nz - pps) < 0.01) return;
       pps = nz;
       z.value = nz;
+      paintRange(z);
       renderTimeline();
       sc.scrollLeft = tAtMouse * pps - mx;
       return;
@@ -2094,6 +2150,7 @@ relayout();
 renderTimeline();
 buildPanel();
 render();
+paintRanges();
 restoreProject();
 
 // Accesso per test automatici / console

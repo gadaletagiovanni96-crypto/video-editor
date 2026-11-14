@@ -12,27 +12,27 @@ In alternativa puoi pubblicarlo gratis con GitHub Pages (Settings → Pages → 
 
 | Funzione | Dove |
 |---|---|
-| Importare foto e video | **＋ Foto / Video** oppure trascina i file nella finestra |
+| Importare foto e video | **Foto e video** oppure trascina i file nella finestra |
 | Durata di ogni foto | Clicca la foto nella timeline → *Durata sullo schermo* |
 | Dissolvenza tra le clip | *Dissolvenza dalla clip precedente* (0–3 s) |
-| Foto animate con movimento leggero (come Movie Maker), sempre visibili per intero | *Animazione (movimento)*, oppure *Animazioni casuali* per tutte. Intensità regolabile in **⚙ Progetto** |
+| Foto animate con movimento leggero (come Movie Maker), sempre visibili per intero | *Animazione (movimento)*, oppure *Animazioni casuali* per tutte. Intensità regolabile in **Progetto** |
 | Tagliare i video | Cursori *Inizio* / *Fine*, oppure *Inizio/Fine al cursore* |
 | Dividere un video in due | *✂ Dividi al cursore* (poi puoi eliminare un pezzo) |
 | Togliere l'audio di un video | *Rimuovi audio del video (muto)* |
-| Una o più tracce musicali | **♪ Musica**: le tracce si mettono in fila. Trascinale nella timeline per spostarle; puoi tagliarle, regolare volume e dissolvenze |
+| Una o più tracce musicali | **Musica**: le tracce si mettono in fila. Trascinale nella timeline per spostarle; puoi tagliarle, regolare volume e dissolvenze |
 | Riordinare le clip | Trascina le clip nella timeline |
-| Formato (16:9, verticale 9:16, 1:1, 4:3), risoluzione, fps | **⚙ Progetto** |
-| Foto intere o a tutto schermo (anche solo le orizzontali, così le verticali non vengono mai tagliate) | **⚙ Progetto** → *Adattamento delle foto allo schermo* |
-| Esportare | **⬇ Esporta video** |
+| Formato (16:9, verticale 9:16, 1:1, 4:3), risoluzione, fps | **Progetto** |
+| Foto intere o a tutto schermo (anche solo le orizzontali, così le verticali non vengono mai tagliate) | **Progetto** → *Foto* → *Adattamento allo schermo* |
+| Esportare | **Esporta video** |
 
 Scorciatoie: `spazio` play/pausa · rotellina del mouse sulla timeline = scorri le clip (`Ctrl` + rotellina = zoom) · `Canc` elimina la clip selezionata · `←` `→` sposta il cursore · `Shift` + `←` `→` passa alla clip precedente/successiva.
 
 ## Salvataggio automatico
 
-Il progetto si salva da solo a ogni modifica (in alto vedi **✓ Progetto salvato**): se ricarichi o chiudi la pagina, alla riapertura ritrovi tutto com'era.
+Il progetto si salva da solo a ogni modifica (in alto vedi **● Progetto salvato**): se ricarichi o chiudi la pagina, alla riapertura ritrovi tutto com'era.
 Foto, video e musica vengono copiati nella memoria del browser **sul tuo computer** (niente va su internet), quindi funziona anche se sposti o cancelli i file originali.
 
-- Per ricominciare da zero usa **🗋 Nuovo**: elimina il progetto e le copie dei file.
+- Per ricominciare da zero usa **Nuovo**: elimina il progetto e le copie dei file.
 - Il salvataggio è legato al browser: aprendo l'editor con un altro browser, o cancellando i dati di navigazione, il progetto non c'è.
 - Con molti video lunghi la memoria del browser potrebbe esaurirsi: in quel caso compare un avviso.
 
