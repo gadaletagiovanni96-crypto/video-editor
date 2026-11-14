@@ -25,7 +25,7 @@ In alternativa puoi pubblicarlo gratis con GitHub Pages (Settings → Pages → 
 | Foto intere o a tutto schermo (anche solo le orizzontali, così le verticali non vengono mai tagliate) | **⚙ Progetto** → *Adattamento delle foto allo schermo* |
 | Esportare | **⬇ Esporta video** |
 
-Scorciatoie: `spazio` play/pausa · rotellina del mouse sulla timeline = scorri le clip (`Ctrl` + rotellina = zoom) · `Canc` elimina la clip selezionata · `←` `→` sposta il cursore (con `Shift` di 1 secondo).
+Scorciatoie: `spazio` play/pausa · rotellina del mouse sulla timeline = scorri le clip (`Ctrl` + rotellina = zoom) · `Canc` elimina la clip selezionata · `←` `→` sposta il cursore · `Shift` + `←` `→` passa alla clip precedente/successiva.
 
 ## Salvataggio automatico
 

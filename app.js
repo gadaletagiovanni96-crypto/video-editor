@@ -1115,7 +1115,7 @@ function buildProjectPanel() {
     <hr>
     <p class="empty-hint">Suggerimento: clicca una clip nella timeline per modificarla.
       Scorciatoie: <b>spazio</b> = play/pausa, <b>rotellina</b> sulla timeline = scorri le clip (<b>Ctrl</b> + rotellina = zoom), <b>Canc</b> = elimina la clip selezionata,
-      <b>← →</b> = sposta il cursore.</p>`;
+      <b>← →</b> = sposta il cursore, <b>Shift + ← →</b> = clip precedente/successiva.</p>`;
   bindPanel(settings, k => {
     scheduleSave();
     if (k === 'aspect' || k === 'quality') applyCanvasSize();
@@ -1202,6 +1202,22 @@ const actions = {
   musicToStart() { const m = selectedItem(); m.start = 0; refresh(); buildPanel(); },
   musicToCursor() { const m = selectedItem(); m.start = Math.round(player.t * 10) / 10; refresh(); buildPanel(); },
 };
+
+// Shift + frecce: va all'inizio della clip successiva o precedente
+// (il punto in cui la clip è già del tutto visibile, dopo la dissolvenza)
+function jumpClip(dir) {
+  if (!layout.length) return;
+  const starts = layout.map((L, i) => (i === 0 ? 0 : L.start + L.tr));
+  const t = player.t;
+  let idx = -1;
+  if (dir > 0) idx = starts.findIndex(p => p > t + 0.001);
+  else for (let i = starts.length - 1; i >= 0; i--) if (starts[i] < t - 0.001) { idx = i; break; }
+  if (idx < 0) { if (dir > 0) seek(total); return; }
+  seek(starts[idx]);
+  select({ kind: 'clip', id: layout[idx].clip.id });
+  const sc = $('#tlScroll'), x = starts[idx] * pps;
+  if (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 40) sc.scrollLeft = Math.max(0, x - 60);
+}
 
 function move(dir) {
   const c = selectedItem();
@@ -2058,8 +2074,8 @@ function setupUI() {
     if (typing) return;
     if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
     else if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { e.preventDefault(); actions.remove(); }
-    else if (e.key === 'ArrowLeft' && e.target.type !== 'range') { e.preventDefault(); seek(player.t - (e.shiftKey ? 1 : 0.1)); }
-    else if (e.key === 'ArrowRight' && e.target.type !== 'range') { e.preventDefault(); seek(player.t + (e.shiftKey ? 1 : 0.1)); }
+    else if (e.key === 'ArrowLeft' && e.target.type !== 'range') { e.preventDefault(); e.shiftKey ? jumpClip(-1) : seek(player.t - 0.1); }
+    else if (e.key === 'ArrowRight' && e.target.type !== 'range') { e.preventDefault(); e.shiftKey ? jumpClip(1) : seek(player.t + 0.1); }
   });
 
   // avvisa solo se c'è ancora qualcosa da salvare
