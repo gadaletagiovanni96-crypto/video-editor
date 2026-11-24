@@ -1,0 +1,50 @@
+#!/bin/sh
+# Editor Video – avvio come applicazione a sé.
+# Apre l'editor in una finestra dedicata di Chromium/Chrome (senza schede,
+# barre ed estensioni) con un profilo separato, più leggero del browser normale.
+
+APP_DIR="${EDITOR_VIDEO_DIR:-/opt/editor-video}"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/editor-video"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/editor-video/flags.conf"
+
+# Browser da usare: quello indicato in EDITOR_VIDEO_BROWSER oppure il primo trovato
+BROWSER="${EDITOR_VIDEO_BROWSER:-}"
+if [ -z "$BROWSER" ]; then
+  for b in chromium chromium-browser google-chrome-stable google-chrome microsoft-edge-stable brave-browser; do
+    if command -v "$b" >/dev/null 2>&1; then BROWSER="$b"; break; fi
+  done
+fi
+if [ -z "$BROWSER" ]; then
+  MSG="Editor Video ha bisogno di Chromium o Google Chrome.
+Installalo dal terminale con:  sudo apt install chromium"
+  if command -v zenity >/dev/null 2>&1; then zenity --error --title="Editor Video" --text="$MSG"
+  elif command -v notify-send >/dev/null 2>&1; then notify-send "Editor Video" "$MSG"
+  fi
+  echo "$MSG" >&2
+  exit 1
+fi
+
+mkdir -p "$DATA_DIR"
+
+# Opzioni aggiuntive personali (una per riga, le righe con # sono ignorate)
+EXTRA=""
+if [ -f "$CONF" ]; then
+  EXTRA=$(grep -v '^[[:space:]]*#' "$CONF" | tr '\n' ' ')
+fi
+
+# shellcheck disable=SC2086
+exec "$BROWSER" \
+  --app="file://$APP_DIR/index.html" \
+  --user-data-dir="$DATA_DIR/profilo" \
+  --class=editor-video \
+  --no-first-run \
+  --no-default-browser-check \
+  --disable-extensions \
+  --disable-sync \
+  --disable-default-apps \
+  --disable-background-networking \
+  --disable-component-update \
+  --disable-features=Translate,MediaRouter,OptimizationHints \
+  --password-store=basic \
+  --window-size=1366,800 \
+  $EXTRA "$@"

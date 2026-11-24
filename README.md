@@ -8,6 +8,25 @@ Apri `index.html` con **Google Chrome** o **Microsoft Edge** (consigliati, espor
 
 In alternativa puoi pubblicarlo gratis con GitHub Pages (Settings → Pages → branch) e aprirlo da un link.
 
+## Installazione su Debian (come programma)
+
+L'editor si può installare come un normale programma: si apre dal menu delle applicazioni in una **finestra tutta sua**, senza schede, barre ed estensioni del browser (più leggero sui PC vecchi). Usa il motore di Chromium, quindi funziona esattamente come la versione nel browser.
+
+1. Scarica il pacchetto: [editor-video_1.0.0_all.deb](https://github.com/gadaletagiovanni96-crypto/video-editor/raw/refs/heads/claude/zealous-lamport-jrj0ky/dist/editor-video_1.0.0_all.deb)
+2. Apri il terminale nella cartella dove l'hai scaricato (di solito `Scaricati`) e installa:
+   ```bash
+   cd ~/Scaricati
+   sudo apt install ./editor-video_1.0.0_all.deb
+   ```
+   Se sul PC non ci sono né Chromium né Google Chrome, `apt` installa automaticamente Chromium.
+3. Apri **Editor Video** dal menu delle applicazioni (oppure scrivi `editor-video` nel terminale).
+
+- **Aggiornare:** scarica il nuovo `.deb` e ripeti il comando del punto 2.
+- **Disinstallare:** `sudo apt remove editor-video` (i progetti salvati restano in `~/.local/share/editor-video`; per cancellarli elimina quella cartella).
+- Il programma installato ha un suo spazio per i progetti, separato dal browser: un progetto iniziato nel browser non compare nel programma (e viceversa).
+- **PC vecchio:** si possono attivare opzioni per usare la scheda grafica nei video. Copia `/opt/editor-video/flags.conf.example` in `~/.config/editor-video/flags.conf` e segui le istruzioni scritte dentro.
+- Per ricreare il pacchetto dai sorgenti: `sh packaging/build-deb.sh`
+
 ## Cosa sa fare
 
 | Funzione | Dove |
@@ -47,4 +66,6 @@ Foto, video e musica vengono copiati nella memoria del browser **sul tuo compute
 - `index.html` – struttura della pagina
 - `style.css` – grafica
 - `app.js` – anteprima, timeline, animazioni, audio ed esportazione
+- `packaging/` – file per creare il pacchetto Debian (`dist/`)
+- `lib/fonts/` – carattere Inter (licenza OFL), incluso per funzionare senza internet
 - `lib/` – librerie esterne incluse: [mp4-muxer](https://github.com/Vanilagy/mp4-muxer) (MIT) per creare il file MP4 e [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3) per leggere i video MP4/MOV

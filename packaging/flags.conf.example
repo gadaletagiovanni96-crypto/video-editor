@@ -1,0 +1,13 @@
+# Opzioni aggiuntive per Editor Video (una per riga).
+# Copia questo file in ~/.config/editor-video/flags.conf e togli il # davanti
+# alle righe che vuoi attivare. Poi riapri l'editor.
+
+# Usa la scheda grafica per decodificare/codificare i video (VA-API).
+# Può velocizzare molto su PC con grafica Intel/AMD; se dà problemi, rimetti il #.
+#--enable-features=AcceleratedVideoDecodeLinuxGL,AcceleratedVideoEncoder,VaapiVideoDecoder,VaapiVideoEncoder
+
+# Forza l'uso della scheda grafica anche se il browser la considera vecchia.
+#--ignore-gpu-blocklist
+
+# Se la finestra appare nera o lampeggia, prova a disattivare la grafica accelerata.
+#--disable-gpu

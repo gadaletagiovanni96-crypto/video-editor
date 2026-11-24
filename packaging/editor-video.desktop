@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Editor Video
+GenericName=Editor di foto e video
+Comment=Crea video con foto, video, dissolvenze, animazioni e musica
+Exec=editor-video
+Icon=editor-video
+Terminal=false
+Categories=AudioVideo;Video;AudioVideoEditing;
+Keywords=video;foto;montaggio;slideshow;musica;editor;
+StartupNotify=true
+StartupWMClass=editor-video
