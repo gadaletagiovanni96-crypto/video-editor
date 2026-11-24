@@ -34,7 +34,7 @@ fi
 
 # shellcheck disable=SC2086
 exec "$BROWSER" \
-  --app="file://$APP_DIR/index.html" \
+  --app="file://$APP_DIR/index.html?desktop=1" \
   --user-data-dir="$DATA_DIR/profilo" \
   --class=editor-video \
   --no-first-run \

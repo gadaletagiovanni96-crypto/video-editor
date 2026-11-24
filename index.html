@@ -43,6 +43,9 @@
       <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M12 8v13M8 3h8l-4 5z"/></symbol>
       <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
       <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></symbol>
+      <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8"/></symbol>
+      <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+      <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
       <symbol id="i-logo" viewBox="0 0 64 64"><rect x="2" y="10" width="60" height="44" rx="10" fill="currentColor" stroke="none"/><path d="M26 25 L44 36 L26 47 Z" fill="#fff" stroke="none"/><g fill="#fff" stroke="none" opacity=".75"><rect x="9" y="14" width="7" height="4" rx="1"/><rect x="22" y="14" width="7" height="4" rx="1"/><rect x="35" y="14" width="7" height="4" rx="1"/><rect x="48" y="14" width="7" height="4" rx="1"/></g></symbol>
     </defs>
   </svg>
@@ -51,6 +54,21 @@
     <div class="brand">
       <svg class="logo"><use href="#i-logo"/></svg>
       <span class="brand-name">Editor Video</span>
+      <!-- menu File: solo nella versione installata su Linux -->
+      <div id="fileMenuWrap" class="file-menu" hidden>
+        <button id="btnFile" class="btn ghost" aria-haspopup="menu">File<svg class="ic"><use href="#i-chevron-down"/></svg></button>
+        <div id="fileMenu" class="menu" role="menu" hidden>
+          <button class="menu-item" data-cmd="new"><svg class="ic"><use href="#i-file-plus"/></svg><span class="mi-text">Nuovo progetto</span></button>
+          <button class="menu-item" data-cmd="open"><svg class="ic"><use href="#i-folder-open"/></svg><span class="mi-text">Apri progetto…</span><kbd>Ctrl+O</kbd></button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" data-cmd="save"><svg class="ic"><use href="#i-save"/></svg><span class="mi-text">Salva</span><kbd>Ctrl+S</kbd></button>
+          <button class="menu-item" data-cmd="saveAs"><svg class="ic"><use href="#i-save"/></svg><span class="mi-text">Salva con nome…</span><kbd>Ctrl+Shift+S</kbd></button>
+          <div class="menu-sep"></div>
+          <div class="menu-title">Progetti recenti</div>
+          <div id="recentList"></div>
+        </div>
+      </div>
+      <span id="projName" class="proj-name" hidden></span>
       <span id="saveState" class="save-state"></span>
     </div>
     <div class="actions">
@@ -136,6 +154,16 @@
     <div class="drop-card"><svg class="ic"><use href="#i-upload"/></svg>Rilascia qui foto, video o musica</div>
   </div>
   <div id="toast" class="toast" hidden></div>
+
+  <dialog id="askDlg" class="dialog">
+    <div class="dlg-head">
+      <div class="dlg-icon"><svg class="ic"><use id="askIcon" href="#i-save"/></svg></div>
+      <div><h2 id="askTitle"></h2></div>
+    </div>
+    <p id="askText" class="ask-text"></p>
+    <label id="askInputWrap" class="field" hidden><span id="askLabel"></span><input id="askInput" type="text" autocomplete="off" spellcheck="false"></label>
+    <div id="askBtns" class="dlg-actions"></div>
+  </dialog>
 
   <dialog id="exportDlg" class="dialog">
     <div class="dlg-head">

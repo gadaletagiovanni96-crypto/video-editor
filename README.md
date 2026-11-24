@@ -12,14 +12,24 @@ In alternativa puoi pubblicarlo gratis con GitHub Pages (Settings → Pages → 
 
 L'editor si può installare come un normale programma: si apre dal menu delle applicazioni in una **finestra tutta sua**, senza schede, barre ed estensioni del browser (più leggero sui PC vecchi). Usa il motore di Chromium, quindi funziona esattamente come la versione nel browser.
 
-1. Scarica il pacchetto: [editor-video_1.0.0_all.deb](https://github.com/gadaletagiovanni96-crypto/video-editor/raw/refs/heads/claude/zealous-lamport-jrj0ky/dist/editor-video_1.0.0_all.deb)
+1. Scarica il pacchetto: [editor-video_1.1.0_all.deb](https://github.com/gadaletagiovanni96-crypto/video-editor/raw/refs/heads/claude/zealous-lamport-jrj0ky/dist/editor-video_1.1.0_all.deb)
 2. Apri il terminale nella cartella dove l'hai scaricato (di solito `Scaricati`) e installa:
    ```bash
    cd ~/Scaricati
-   sudo apt install ./editor-video_1.0.0_all.deb
+   sudo apt install ./editor-video_1.1.0_all.deb
    ```
    Se sul PC non ci sono né Chromium né Google Chrome, `apt` installa automaticamente Chromium.
 3. Apri **Editor Video** dal menu delle applicazioni (oppure scrivi `editor-video` nel terminale).
+
+### Salvare e aprire i progetti (solo versione installata)
+
+Nel programma installato c'è il menu **File**: *Nuovo progetto*, *Apri progetto…* (`Ctrl+O`), *Salva* (`Ctrl+S`), *Salva con nome…* (`Ctrl+Shift+S`) e l'elenco dei **progetti recenti**. In alto vedi il nome del progetto e se ci sono modifiche non salvate.
+
+Un progetto salvato è una **cartella** con il suo nome che contiene:
+- `progetto.evideo` – l'ordine delle clip, i tagli, le animazioni, la musica e le impostazioni;
+- `media/` – una copia di foto, video e musica usati.
+
+Così il progetto si può spostare, copiare su una chiavetta o tenere come backup, e si riapre anche se gli originali vengono cancellati. Salvando di nuovo vengono copiati solo i file nuovi. Per aprire un progetto si sceglie la sua cartella.
 
 - **Aggiornare:** scarica il nuovo `.deb` e ripeti il comando del punto 2.
 - **Disinstallare:** `sudo apt remove editor-video` (i progetti salvati restano in `~/.local/share/editor-video`; per cancellarli elimina quella cartella).

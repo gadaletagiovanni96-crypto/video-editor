@@ -24,6 +24,10 @@ function fmtTime(t) {
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// Versione installata su Linux: il comando di avvio apre index.html?desktop=1.
+// Solo lì compaiono i progetti salvati su file (menu File).
+const DESKTOP = new URLSearchParams(location.search).has('desktop') && 'showDirectoryPicker' in window;
+
 // Icona dal set definito in index.html
 const icon = (name, cls = '') => `<svg class="ic ${cls}"><use href="#i-${name}"/></svg>`;
 
@@ -334,7 +338,7 @@ let storageWarned = false, persistAsked = false;
 
 function setSaveState(txt) {
   const el = $('#saveState');
-  if (!el) return;
+  if (!el || DESKTOP) return;
   el.textContent = txt.replace(/^[✓⚠]\s*/, '');
   el.dataset.state = /^⚠/.test(txt) ? 'err' : /^✓/.test(txt) ? 'ok' : 'busy';
 }
@@ -352,7 +356,7 @@ function storeFile(file) {
         toast('Spazio del browser insufficiente: alcuni file non verranno ripristinati se ricarichi la pagina', 8000);
       }
     })
-    .finally(() => { pendingFiles.delete(id); scheduleSave(); });
+    .finally(() => { pendingFiles.delete(id); scheduleSave(false); });
   pendingFiles.set(id, p);
   return id;
 }
@@ -373,8 +377,9 @@ function serializeProject() {
 }
 
 let saveTimer = 0, restoring = false;
-function scheduleSave() {
+function scheduleSave(changed = true) {
   if (restoring || !window.indexedDB) return;
+  if (changed) markDirty();
   clearTimeout(saveTimer);
   setSaveState('Salvataggio…');
   saveTimer = setTimeout(saveProject, 400);
@@ -398,10 +403,50 @@ async function saveProject() {
   }
 }
 
+// Carica clip e musica descritte in "data"; getFile(item) restituisce il File
+// da usare, afterLoad(obj, item, file) permette di completare l'oggetto creato
+async function loadItems(data, getFile, afterLoad, label) {
+  let missing = 0, n = 0;
+  const tot = data.clips.length + data.music.length;
+  const load = async item => {
+    toast(`${label}… ${++n}/${tot}`, 60000);
+    const file = await getFile(item).catch(() => null);
+    if (!file) missing++;
+    return file;
+  };
+  for (const sc of data.clips) {
+    try {
+      const file = await load(sc);
+      if (!file) continue;
+      const c = sc.type === 'image' ? await createImageClip(file) : await createVideoClip(file.name, URL.createObjectURL(file));
+      const { type, media, ...saved } = sc;
+      Object.assign(c, saved);
+      if (c.type === 'video') { c.in = clamp(c.in, 0, c.srcDuration); c.out = clamp(c.out, c.in + 0.1, c.srcDuration); }
+      afterLoad?.(c, sc, file);
+      clips.push(c);
+      refresh();
+    } catch (err) { console.warn(err); missing++; }
+  }
+  for (const sm of data.music) {
+    try {
+      const file = await load(sm);
+      if (!file) continue;
+      const m = await createMusic(file.name, URL.createObjectURL(file));
+      const { media, ...saved } = sm;
+      Object.assign(m, saved);
+      m.in = clamp(m.in, 0, m.srcDuration); m.out = clamp(m.out, m.in + 0.1, m.srcDuration);
+      afterLoad?.(m, sm, file);
+      music.push(m);
+    } catch (err) { console.warn(err); missing++; }
+  }
+  return missing;
+}
+
 async function restoreProject() {
   if (!window.indexedDB) return;
   let data;
   try { data = await idb('project', 'readonly', st => st.get('current')); } catch { return; }
+  if (DESKTOP) await restoreProjectMeta();
   if (!data) return;
   Object.assign(settings, data.settings || {});
   applyCanvasSize();
@@ -413,61 +458,406 @@ async function restoreProject() {
   $('#emptyState').hidden = true;
   ensureAudio();
   let missing = 0;
-  const total0 = data.clips.length + data.music.length;
-  let n = 0;
-  const load = async item => {
-    toast(`Ripristino del progetto… ${++n}/${total0}`, 60000);
-    const rec = await idb('files', 'readonly', st => st.get(item.fileId)).catch(() => null);
-    if (!rec) { missing++; return null; }
-    return new File([rec.blob], rec.name, { type: rec.type });
-  };
   try {
-    for (const sc of data.clips) {
-      try {
-        const file = await load(sc);
-        if (!file) continue;
-        const c = sc.type === 'image' ? await createImageClip(file) : await createVideoClip(file.name, URL.createObjectURL(file));
-        const { type, ...saved } = sc;
-        Object.assign(c, saved);
-        if (c.type === 'video') { c.in = clamp(c.in, 0, c.srcDuration); c.out = clamp(c.out, c.in + 0.1, c.srcDuration); }
-        clips.push(c);
-        refresh();
-      } catch (err) { console.warn(err); missing++; }
-    }
-    for (const sm of data.music) {
-      try {
-        const file = await load(sm);
-        if (!file) continue;
-        const m = await createMusic(file.name, URL.createObjectURL(file));
-        Object.assign(m, sm);
-        m.in = clamp(m.in, 0, m.srcDuration); m.out = clamp(m.out, m.in + 0.1, m.srcDuration);
-        music.push(m);
-      } catch (err) { console.warn(err); missing++; }
-    }
+    missing = await loadItems(data, async item => {
+      const rec = await idb('files', 'readonly', st => st.get(item.fileId)).catch(() => null);
+      return rec ? new File([rec.blob], rec.name, { type: rec.type }) : null;
+    }, null, 'Ripristino del progetto');
   } finally {
     restoring = false;
     loadingCount--;
   }
+  const wasDirty = proj.dirty;
   refresh();
+  proj.dirty = wasDirty; // il ripristino non è una modifica
+  updateProjectUI();
   seek(data.t || 0);
   buildPanel();
   setSaveState('✓ Progetto salvato');
   toast(missing ? `Progetto ripristinato (${missing} file non trovati)` : 'Progetto ripristinato', 4000);
 }
 
-function newProject() {
-  if ((clips.length || music.length) &&
-      !confirm('Vuoi iniziare un nuovo progetto?\nIl progetto attuale verrà eliminato.')) return;
+// Svuota il progetto corrente
+function clearProject() {
   pause();
   for (const x of [...clips, ...music]) disposeMedia(x);
   clips.length = 0;
   music.length = 0;
   selected = null;
   player.t = 0;
+}
+
+async function newProject() {
+  if (DESKTOP) {
+    if (!(await confirmDiscard())) return;
+  } else if ((clips.length || music.length) &&
+      !confirm('Vuoi iniziare un nuovo progetto?\nIl progetto attuale verrà eliminato.')) return;
+  clearProject();
+  if (DESKTOP) resetProjectMeta();
   refresh();
+  if (DESKTOP) { proj.dirty = false; updateProjectUI(); saveMeta(); }
   buildPanel();
   saveProject();
   toast('Nuovo progetto');
+}
+
+/* =========================================================
+ * Progetti su file – solo versione Linux installata
+ * Un progetto è una cartella:
+ *   <Nome>/progetto.evideo   impostazioni, clip, musica (JSON)
+ *   <Nome>/media/            copia di foto, video e musica usati
+ * ======================================================= */
+const PROJECT_FILE = 'progetto.evideo';
+const proj = { name: '', dir: null, media: {}, dirty: false, change: 0, busy: false };
+
+function resetProjectMeta() {
+  Object.assign(proj, { name: '', dir: null, media: {}, dirty: false });
+}
+function markDirty() {
+  if (!DESKTOP) return;
+  proj.change++;
+  if (!proj.dirty) { proj.dirty = true; updateProjectUI(); saveMetaSoon(); }
+}
+let metaTimer = 0;
+function saveMetaSoon() { clearTimeout(metaTimer); metaTimer = setTimeout(saveMeta, 500); }
+async function saveMeta() {
+  if (!DESKTOP) return;
+  try {
+    await idb('project', 'readwrite', st => st.put({ name: proj.name, dir: proj.dir, media: proj.media, dirty: proj.dirty }, 'meta'));
+  } catch (err) { console.warn('Impossibile salvare le informazioni del progetto', err); }
+}
+async function restoreProjectMeta() {
+  try {
+    const m = await idb('project', 'readonly', st => st.get('meta'));
+    if (m) Object.assign(proj, { name: m.name || '', dir: m.dir || null, media: m.media || {}, dirty: !!m.dirty });
+  } catch { /* niente */ }
+  updateProjectUI();
+}
+
+function updateProjectUI() {
+  if (!DESKTOP) return;
+  const name = proj.name || 'Senza titolo';
+  document.title = `${proj.dirty ? '• ' : ''}${name} – Editor Video`;
+  const pn = $('#projName');
+  pn.textContent = name;
+  pn.title = proj.dir ? `Cartella del progetto: ${proj.dir.name}` : 'Progetto non ancora salvato su file';
+  const st = $('#saveState');
+  if (!clips.length && !music.length && !proj.dir) { st.textContent = ''; return; }
+  if (!proj.dir) { st.textContent = 'Non salvato'; st.dataset.state = 'new'; }
+  else if (proj.dirty) { st.textContent = 'Modifiche non salvate'; st.dataset.state = 'busy'; }
+  else { st.textContent = 'Salvato'; st.dataset.state = 'ok'; }
+}
+
+// Nome valido per file e cartelle
+function safeName(name) {
+  return String(name).replace(/[\/\\:*?"<>|\x00-\x1f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+function uniqueName(name, taken) {
+  const clean = safeName(name) || 'file';
+  const dot = clean.lastIndexOf('.');
+  const base = dot > 0 ? clean.slice(0, dot) : clean, ext = dot > 0 ? clean.slice(dot) : '';
+  let n = clean, i = 2;
+  while (taken.has(n)) n = `${base} (${i++})${ext}`;
+  taken.add(n);
+  return n;
+}
+async function hasFile(dir, name) {
+  try { await dir.getFileHandle(name); return true; } catch { return false; }
+}
+async function ensurePermission(handle) {
+  const o = { mode: 'readwrite' };
+  try {
+    if ((await handle.queryPermission(o)) === 'granted') return true;
+    return (await handle.requestPermission(o)) === 'granted';
+  } catch { return false; }
+}
+
+/* ---------- finestra di domanda (nome, conferme) ---------- */
+function ask({ title, text = '', icon: ic = 'save', input = null, buttons }) {
+  const dlg = $('#askDlg');
+  $('#askTitle').textContent = title;
+  $('#askText').innerHTML = text;
+  $('#askIcon').setAttribute('href', `#i-${ic}`);
+  const wrap = $('#askInputWrap'), inp = $('#askInput');
+  wrap.hidden = !input;
+  if (input) { $('#askLabel').textContent = input.label; inp.value = input.value || ''; }
+  const box = $('#askBtns');
+  box.innerHTML = '';
+  return new Promise(resolve => {
+    let done = false;
+    const finish = v => { if (done) return; done = true; dlg.close(); resolve(v); };
+    for (const b of buttons) {
+      const el = document.createElement('button');
+      el.className = `btn ${b.kind || ''}`;
+      el.textContent = b.label;
+      el.onclick = () => finish(b.value == null ? null : { button: b.value, input: inp.value });
+      box.appendChild(el);
+    }
+    dlg.oncancel = e => { e.preventDefault(); finish(null); };
+    inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); box.lastChild.click(); } };
+    dlg.showModal();
+    if (input) { inp.focus(); inp.select(); } else box.lastChild.focus();
+  });
+}
+
+// Se ci sono modifiche non salvate chiede cosa fare. true = si può procedere
+async function confirmDiscard() {
+  if (!DESKTOP || !proj.dirty || (!clips.length && !music.length)) return true;
+  const r = await ask({
+    title: 'Salvare le modifiche?',
+    text: `Il progetto <b>${esc(proj.name || 'Senza titolo')}</b> ha modifiche non salvate.`,
+    buttons: [
+      { label: 'Annulla', value: null, kind: 'ghost' },
+      { label: 'Non salvare', value: 'discard', kind: 'ghost' },
+      { label: 'Salva', value: 'save', kind: 'primary' },
+    ],
+  });
+  if (!r) return false;
+  if (r.button === 'save') return saveProjectFile();
+  return true;
+}
+
+/* ---------- salvataggio ---------- */
+async function saveProjectFile() {
+  if (!clips.length && !music.length) { toast("Il progetto è vuoto: non c'è niente da salvare"); return false; }
+  if (!proj.dir) return saveProjectAs();
+  if (!(await ensurePermission(proj.dir))) { toast('Permesso negato: non posso scrivere nella cartella del progetto', 6000); return false; }
+  try { await proj.dir.getFileHandle(PROJECT_FILE); } catch {
+    // la cartella è stata spostata o cancellata
+    toast('La cartella del progetto non è più raggiungibile: scegli dove salvarlo', 6000);
+    return saveProjectAs();
+  }
+  return writeProject(proj.dir, proj.media, proj.name);
+}
+
+async function saveProjectAs() {
+  if (!clips.length && !music.length) { toast("Il progetto è vuoto: non c'è niente da salvare"); return false; }
+  const r = await ask({
+    title: 'Salva progetto',
+    text: 'Nella posizione che sceglierai verrà creata una cartella con questo nome, con dentro il progetto e una copia di foto, video e musica.',
+    input: { label: 'Nome del progetto', value: proj.name || 'Il mio video' },
+    buttons: [{ label: 'Annulla', value: null, kind: 'ghost' }, { label: 'Scegli dove salvare…', value: 'ok', kind: 'primary' }],
+  });
+  if (!r) return false;
+  const name = safeName(r.input) || 'Il mio video';
+  let parent;
+  try {
+    parent = await window.showDirectoryPicker({ id: 'editor-video-progetti', mode: 'readwrite', startIn: 'documents' });
+  } catch (err) { if (err.name !== 'AbortError') toast('Impossibile aprire la scelta della cartella: ' + err.message, 6000); return false; }
+  try {
+    // se è stata scelta direttamente la cartella di un progetto, si usa quella
+    const dir = (await hasFile(parent, PROJECT_FILE)) ? parent : await parent.getDirectoryHandle(name, { create: true });
+    const same = proj.dir && await proj.dir.isSameEntry(dir).catch(() => false);
+    if (!same && await hasFile(dir, PROJECT_FILE)) {
+      const ok = await ask({
+        title: 'Sostituire il progetto?', icon: 'folder-open',
+        text: `La cartella <b>${esc(dir.name)}</b> contiene già un progetto. Vuoi sostituirlo con quello attuale?`,
+        buttons: [{ label: 'Annulla', value: null, kind: 'ghost' }, { label: 'Sostituisci', value: 'ok', kind: 'danger' }],
+      });
+      if (!ok) return false;
+    }
+    let oldMedia = same ? proj.media : {};
+    if (!same && await hasFile(dir, PROJECT_FILE)) {
+      // sostituendo un altro progetto si eliminano i suoi file multimediali
+      try {
+        const old = JSON.parse(await (await (await dir.getFileHandle(PROJECT_FILE)).getFile()).text());
+        oldMedia = Object.fromEntries([...(old.clips || []), ...(old.music || [])].map((x, i) => [`old-${i}`, x.media]));
+      } catch { /* ignora */ }
+    }
+    return await writeProject(dir, oldMedia, name);
+  } catch (err) {
+    console.error(err);
+    toast('Salvataggio non riuscito: ' + err.message, 8000);
+    return false;
+  }
+}
+
+async function writeProject(dir, oldMedia, name) {
+  if (proj.busy) return false;
+  proj.busy = true;
+  const changeAtStart = proj.change;
+  try {
+    toast('Salvataggio del progetto…', 60000);
+    await Promise.all(pendingFiles.values());
+    const mediaDir = await dir.getDirectoryHandle('media', { create: true });
+    const existing = new Set();
+    for await (const [n, h] of mediaDir.entries()) if (h.kind === 'file') existing.add(n);
+    const sameMedia = new Set(Object.values(oldMedia));
+    const taken = new Set(existing);
+    const media = {}, used = new Set();
+    let missing = 0, copied = 0;
+    const items = [...clips, ...music].filter(x => x.fileId);
+    const toCopy = items.filter(x => !(oldMedia[x.fileId] && existing.has(oldMedia[x.fileId])));
+    for (const it of items) {
+      if (media[it.fileId]) continue;
+      let fname = oldMedia[it.fileId];
+      if (!fname || !existing.has(fname)) {
+        const rec = await idb('files', 'readonly', st => st.get(it.fileId)).catch(() => null);
+        if (!rec) { missing++; continue; }
+        fname = uniqueName(rec.name, taken);
+        copied++;
+        toast(`Salvataggio: copia dei file ${copied}/${new Set(toCopy.map(x => x.fileId)).size} (${rec.name})…`, 60000);
+        const w = await (await mediaDir.getFileHandle(fname, { create: true })).createWritable();
+        await w.write(rec.blob);
+        await w.close();
+      }
+      media[it.fileId] = fname;
+      used.add(fname);
+    }
+    const data = serializeProject();
+    const strip = list => list.map(({ fileId, ...rest }) => ({ ...rest, media: media[fileId] })).filter(x => x.media);
+    const out = {
+      app: 'editor-video', format: 1, name, saved: new Date().toISOString(),
+      settings: data.settings, pps: data.pps, t: data.t,
+      clips: strip(data.clips), music: strip(data.music),
+    };
+    const w = await (await dir.getFileHandle(PROJECT_FILE, { create: true })).createWritable();
+    await w.write(JSON.stringify(out, null, 2));
+    await w.close();
+    // elimina i file multimediali del progetto che non servono più
+    for (const f of sameMedia) if (f && !used.has(f) && existing.has(f)) await mediaDir.removeEntry(f).catch(() => {});
+
+    proj.dir = dir;
+    proj.name = name;
+    proj.media = media;
+    if (proj.change === changeAtStart) proj.dirty = false;
+    await saveMeta();
+    await addRecent(dir, name);
+    updateProjectUI();
+    toast(missing ? `Progetto "${name}" salvato, ma ${missing} file non erano disponibili` : `Progetto "${name}" salvato`, 4000);
+    return true;
+  } catch (err) {
+    console.error(err);
+    toast('Salvataggio non riuscito: ' + err.message, 8000);
+    return false;
+  } finally {
+    proj.busy = false;
+  }
+}
+
+/* ---------- apertura ---------- */
+async function openProjectPicker() {
+  if (!(await confirmDiscard())) return;
+  let dir;
+  try {
+    dir = await window.showDirectoryPicker({ id: 'editor-video-progetti', mode: 'readwrite', startIn: 'documents' });
+  } catch (err) { if (err.name !== 'AbortError') toast('Impossibile aprire la scelta della cartella: ' + err.message, 6000); return; }
+  await openProjectDir(dir);
+}
+
+async function openProjectDir(dir) {
+  let data;
+  try {
+    data = JSON.parse(await (await (await dir.getFileHandle(PROJECT_FILE)).getFile()).text());
+    if (!Array.isArray(data.clips) || !Array.isArray(data.music)) throw new Error('formato');
+  } catch {
+    toast(`La cartella "${dir.name}" non contiene un progetto di Editor Video. Seleziona la cartella del progetto (quella con dentro il file ${PROJECT_FILE}).`, 9000);
+    return false;
+  }
+  const mediaDir = await dir.getDirectoryHandle('media').catch(() => null);
+  clearProject();
+  resetProjectMeta();
+  Object.assign(settings, data.settings || {});
+  applyCanvasSize();
+  if (data.pps) { pps = data.pps; $('#zoom').value = pps; paintRange($('#zoom')); }
+  refresh();
+
+  restoring = true;
+  loadingCount++;
+  $('#emptyState').hidden = true;
+  ensureAudio();
+  const media = {};
+  let missing = 0;
+  try {
+    missing = await loadItems(data, async item => {
+      if (!mediaDir || !item.media) return null;
+      return (await mediaDir.getFileHandle(item.media)).getFile();
+    }, (obj, item, file) => {
+      obj.fileId = storeFile(file); // copia di lavoro per il ripristino automatico
+      media[obj.fileId] = item.media;
+    }, `Apertura di "${data.name || dir.name}"`);
+  } finally {
+    restoring = false;
+    loadingCount--;
+  }
+  refresh();
+  seek(data.t || 0);
+  select(null);
+  Object.assign(proj, { dir, name: data.name || dir.name, media, dirty: false });
+  await saveMeta();
+  await addRecent(dir, proj.name);
+  updateProjectUI();
+  toast(missing ? `Progetto aperto, ma ${missing} file non sono stati trovati nella cartella media` : `Progetto "${proj.name}" aperto`, 5000);
+  return true;
+}
+
+/* ---------- progetti recenti ---------- */
+async function getRecents() {
+  try { return (await idb('project', 'readonly', st => st.get('recent'))) || []; } catch { return []; }
+}
+async function setRecents(list) {
+  try { await idb('project', 'readwrite', st => st.put(list, 'recent')); } catch { /* ignora */ }
+}
+async function addRecent(dir, name) {
+  const list = await getRecents();
+  const out = [{ dir, name, when: Date.now() }];
+  for (const r of list) {
+    if (out.length >= 8) break;
+    if (!(await r.dir.isSameEntry(dir).catch(() => false))) out.push(r);
+  }
+  await setRecents(out);
+}
+async function renderRecents() {
+  const box = $('#recentList');
+  const list = await getRecents();
+  if (!list.length) { box.innerHTML = '<div class="menu-empty">Nessun progetto recente</div>'; return; }
+  box.innerHTML = '';
+  list.forEach((r, i) => {
+    const b = document.createElement('button');
+    b.className = 'menu-item';
+    const when = new Date(r.when).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    b.innerHTML = `${icon('folder-open')}<span class="mi-text"><span>${esc(r.name)}</span><small>${when}</small></span>`;
+    b.onclick = async () => {
+      closeFileMenu();
+      if (!(await confirmDiscard())) return;
+      if (!(await ensurePermission(r.dir))) { toast('Permesso negato per la cartella del progetto', 6000); return; }
+      const ok = await openProjectDir(r.dir);
+      if (!ok) { const l = await getRecents(); l.splice(i, 1); await setRecents(l); }
+    };
+    box.appendChild(b);
+  });
+}
+
+/* ---------- menu File ---------- */
+function closeFileMenu() { $('#fileMenu').hidden = true; }
+async function fileCommand(cmd) {
+  closeFileMenu();
+  if (proj.busy) return;
+  if (cmd === 'new') return newProject();
+  if (cmd === 'open') return openProjectPicker();
+  if (cmd === 'save') return saveProjectFile();
+  if (cmd === 'saveAs') return saveProjectAs();
+}
+function setupDesktop() {
+  if (!DESKTOP) return;
+  document.body.classList.add('desktop');
+  $('#fileMenuWrap').hidden = false;
+  $('#projName').hidden = false;
+  $('#btnNew').hidden = true; // "Nuovo" è nel menu File
+  $('#btnFile').onclick = async e => {
+    e.stopPropagation();
+    const m = $('#fileMenu');
+    if (!m.hidden) return closeFileMenu();
+    await renderRecents();
+    m.hidden = false;
+  };
+  $('#fileMenu').addEventListener('click', e => {
+    const b = e.target.closest('[data-cmd]');
+    if (b) fileCommand(b.dataset.cmd);
+  });
+  document.addEventListener('click', e => { if (!e.target.closest('#fileMenuWrap')) closeFileMenu(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeFileMenu(); });
+  updateProjectUI();
 }
 
 /* =========================================================
@@ -1156,6 +1546,9 @@ function buildProjectPanel() {
         <kbd>Canc</kbd><span>Elimina la clip selezionata</span>
         <kbd>Rotellina</kbd><span>Scorre la timeline</span>
         <kbd>Ctrl + rotellina</kbd><span>Zoom della timeline</span>
+        ${DESKTOP ? `<kbd>Ctrl + S</kbd><span>Salva il progetto</span>
+        <kbd>Ctrl + Shift + S</kbd><span>Salva con nome</span>
+        <kbd>Ctrl + O</kbd><span>Apri un progetto</span>` : ''}
       </div>`)}`;
   bindPanel(settings, k => {
     scheduleSave();
@@ -1375,6 +1768,7 @@ class ChunkStore {
 }
 
 function exportFileName(ext) {
+  if (DESKTOP && proj.name) return `${safeName(proj.name)}.${ext}`;
   const d = new Date();
   const p2 = n => String(n).padStart(2, '0');
   return `video_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}.${ext}`;
@@ -2124,7 +2518,13 @@ function setupUI() {
 
   // Tastiera
   window.addEventListener('keydown', e => {
-    if ($('#exportDlg').open) return;
+    if ($('#exportDlg').open || $('#askDlg').open) return;
+    // Ctrl+S / Ctrl+Shift+S / Ctrl+O (solo versione Linux)
+    if (DESKTOP && (e.ctrlKey || e.metaKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      if (k === 's') { e.preventDefault(); fileCommand(e.shiftKey ? 'saveAs' : 'save'); return; }
+      if (k === 'o') { e.preventDefault(); fileCommand('open'); return; }
+    }
     const tag = e.target.tagName;
     const typing = tag === 'SELECT' || tag === 'TEXTAREA' || (tag === 'INPUT' && !['range', 'checkbox'].includes(e.target.type));
     if (typing) return;
@@ -2137,6 +2537,7 @@ function setupUI() {
   // avvisa solo se c'è ancora qualcosa da salvare
   window.addEventListener('beforeunload', e => {
     if (saveTimer) saveProject();
+    if (DESKTOP && proj.dirty && (clips.length || music.length)) { e.preventDefault(); e.returnValue = ''; }
     if (pendingFiles.size) { e.preventDefault(); e.returnValue = ''; }
   });
 
@@ -2145,6 +2546,7 @@ function setupUI() {
 let seekDragging = false;
 
 setupUI();
+setupDesktop();
 applyCanvasSize();
 relayout();
 renderTimeline();
@@ -2154,4 +2556,4 @@ paintRanges();
 restoreProject();
 
 // Accesso per test automatici / console
-window.editor = { clips, music, settings, player, seek, play, pause, addFiles, get total() { return total; }, exp };
+window.editor = { clips, music, settings, player, seek, play, pause, addFiles, get total() { return total; }, exp, proj, fileCommand };

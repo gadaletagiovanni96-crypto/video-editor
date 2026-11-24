@@ -128,11 +128,45 @@ button, input, select { font: inherit; color: inherit; }
 .save-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .save-state[data-state=ok]::before { background: var(--success); }
 .save-state[data-state=busy]::before { background: var(--warning); animation: pulse 1s infinite; }
+.save-state[data-state=new]::before { background: var(--muted); }
 .save-state[data-state=err] { color: var(--danger); }
 .save-state[data-state=err]::before { background: var(--danger); }
 @keyframes pulse { 50% { opacity: .3; } }
 .actions { display: flex; align-items: center; gap: 6px; }
 .divider { width: 1px; height: 22px; background: var(--line-2); margin: 0 6px; }
+
+/* menu File e nome del progetto (versione Linux) */
+.file-menu { position: relative; margin-left: 6px; }
+#btnFile { padding: 0 9px 0 11px; gap: 4px; }
+#btnFile .ic { width: 14px; height: 14px; }
+.menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 900; min-width: 290px; padding: 6px;
+  background: var(--surface-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px;
+  background: transparent; color: var(--text); text-align: left; cursor: pointer; font-size: 13px;
+}
+.menu-item:hover, .menu-item:focus-visible { background: var(--surface-4); outline: none; }
+.menu-item .ic { color: var(--muted); }
+.mi-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.mi-text span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mi-text small { color: var(--muted); font-size: 11px; }
+.menu-sep { height: 1px; background: var(--line-2); margin: 6px 4px; }
+.menu-title { padding: 4px 10px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.menu-empty { padding: 4px 10px 8px; font-size: 12.5px; color: var(--muted); }
+.proj-name {
+  max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-weight: 600; color: var(--text-2); padding-left: 12px; border-left: 1px solid var(--line-2);
+}
+input[type=text] {
+  width: 100%; height: 36px; padding: 0 10px; outline: none;
+  background: var(--surface-3); border: 1px solid var(--line-2); border-radius: var(--radius-sm); color: var(--text);
+}
+input[type=text]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ask-text { margin: -6px 0 16px; color: var(--text-2); font-size: 13px; }
+.ask-text:empty { display: none; }
+#askDlg .field { margin-bottom: 0; }
 
 /* ---------- area di lavoro ---------- */
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-height: 0; }
