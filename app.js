@@ -87,6 +87,7 @@ const settings = {
   transition: 1,
   defaultAnim: 'random',
   smoothAnim: true,
+  optimizeVideos: true,
   animStrength: 1,
 };
 const clips = [];  // foto e video in sequenza
@@ -263,7 +264,12 @@ async function addFiles(fileList) {
       if (kind === 'image') {
         const c = await createImageClip(f); c.fileId = storeFile(f); clips.push(c); lastSel = { kind: 'clip', id: c.id };
       } else if (kind === 'video') {
-        const c = await createVideoClip(f.name, URL.createObjectURL(f)); c.fileId = storeFile(f); clips.push(c); lastSel = { kind: 'clip', id: c.id };
+        let vf = f;
+        if (settings.optimizeVideos) {
+          const opt = await optimizeVideoFile(f, f.name).catch(() => null);
+          if (opt) vf = opt;
+        }
+        const c = await createVideoClip(vf.name, URL.createObjectURL(vf)); c.fileId = storeFile(vf); clips.push(c); lastSel = { kind: 'clip', id: c.id };
       } else if (kind === 'audio') {
         const m = await createMusic(f.name, URL.createObjectURL(f)); m.fileId = storeFile(f); music.push(m); lastSel = { kind: 'music', id: m.id };
       } else {
@@ -1470,6 +1476,9 @@ function buildPanel() {
   } else {
     panel.innerHTML = `
       ${panelHead({ ic: 'film', kind: 'video', title: 'Video', sub: `${c.name} · ${c.w}×${c.h} · ${fmtTime(c.srcDuration)}`, thumb: c.thumb })}
+      ${isHeavySize(c.w, c.h) ? group('Video pesante', `
+        ${hint(`È un video <b>${sizeLabel(c.w, c.h)}</b>: rallenta anteprima ed esportazione. Convertendolo in Full HD la qualità del video finale non cambia.`)}
+        <div class="btnrow">${actBtn('optimize', 'wand', 'Ottimizza (converti in Full HD)', 'style="flex:1;justify-content:center"')}</div>`) : ''}
       ${group('Taglio', `
         ${rangeField('Inizio', 'in', c.in, 0, c.srcDuration, 0.05, 't')}
         ${rangeField('Fine', 'out', c.out, 0, c.srcDuration, 0.05, 't')}
@@ -1520,6 +1529,11 @@ function buildProjectPanel() {
       ${selectField('Formato', 'aspect', { '16:9': 'Orizzontale 16:9 (YouTube, TV)', '9:16': 'Verticale 9:16 (Storie, Reels, TikTok)', '1:1': 'Quadrato 1:1', '4:3': 'Classico 4:3' }, settings.aspect)}
       ${selectField('Risoluzione', 'quality', { 480: '480p (leggero)', 720: '720p HD', 1080: '1080p Full HD' }, settings.quality)}
       ${selectField('Fotogrammi al secondo', 'fps', { 25: '25', 30: '30', 60: '60' }, settings.fps)}`)}
+    ${group('Video', `
+      ${checkField('Converti in Full HD i video più grandi quando li aggiungi (consigliato)', 'optimizeVideos', settings.optimizeVideos)}
+      ${hint('Video 4K e simili diventano molto più veloci da montare ed esportare; il video finale è comunque al massimo 1080p.')}
+      ${(() => { const n = clips.filter(x => x.type === 'video' && isHeavySize(x.w, x.h)).length;
+        return n ? `<div class="btnrow">${actBtn('optimizeAll', 'wand', `Ottimizza i video già inseriti (${n})`, 'style="flex:1;justify-content:center"')}</div>` : ''; })()}`)}
     ${group('Dissolvenze', `
       ${checkField('Inizia con dissolvenza dal nero', 'fadeFromBlack', settings.fadeFromBlack)}
       ${checkField('Termina con dissolvenza verso il nero', 'fadeToBlack', settings.fadeToBlack)}`)}
@@ -1633,6 +1647,14 @@ const actions = {
       }
     });
     refresh(); buildPanel(); toast('Impostazioni applicate a tutte le clip');
+  },
+  optimize() {
+    const c = selectedItem();
+    if (c && c.type === 'video') optimizeExistingClips(clips.filter(x => x.type === 'video' && (x.fileId ? x.fileId === c.fileId : x.url === c.url)));
+  },
+  optimizeAll() {
+    const list = clips.filter(x => x.type === 'video' && isHeavySize(x.w, x.h));
+    if (list.length) optimizeExistingClips(list);
   },
   musicToStart() { const m = selectedItem(); m.start = 0; refresh(); buildPanel(); },
   musicToCursor() { const m = selectedItem(); m.start = Math.round(player.t * 10) / 10; refresh(); buildPanel(); },
@@ -1974,7 +1996,7 @@ const exportFrames = new Map(); // clip.id -> { frame, rot }
 async function readMp4Info(blob) {
   if (!window.MP4Box) return null;
   const file = MP4Box.createFile(false);
-  let info = null, error = null;
+  let info = null, error = null, moov = null;
   file.onReady = i => { info = i; };
   file.onError = e => { error = e; };
   let pos = 0;
@@ -1989,13 +2011,14 @@ async function readMp4Info(blob) {
     const len = type === 'mdat' ? (head.getUint32(0) === 1 ? 16 : 8) : size;
     if (len > 200 * 1048576) return null; // struttura anomala
     const buf = await blob.slice(pos, pos + len).arrayBuffer();
+    if (type === 'moov') moov = buf.slice(0);
     buf.fileStart = pos;
     file.appendBuffer(buf);
     pos += size;
   }
   file.flush();
   if (!info) return null;
-  return { file, info };
+  return { file, info, moov };
 }
 
 function codecDescription(file, trackId) {
@@ -2190,6 +2213,272 @@ function closeFrameReaders() {
   frameReaders.clear();
   finishedReaders.clear();
   exportFrames.clear();
+}
+
+/* ---------------------------------------------------------
+ * Ottimizzazione dei video pesanti (es. 4K) all'importazione.
+ * Il video viene convertito una volta sola in Full HD: il file
+ * esportato è al massimo 1080p, quindi la qualità finale non
+ * cambia, ma anteprima ed esportazione diventano molto più leggere.
+ * L'audio AAC viene copiato così com'è (nessuna perdita).
+ * ------------------------------------------------------- */
+const OPT_LONG = 1920, OPT_SHORT = 1080;
+const isHeavySize = (w, h) => Math.max(w, h) > OPT_LONG || Math.min(w, h) > OPT_SHORT;
+const sizeLabel = (w, h) => (Math.max(w, h) >= 3800 ? '4K' : Math.max(w, h) >= 2500 ? 'Quad HD' : 'alta risoluzione');
+
+// Legge le caratteristiche del video (solo MP4/MOV) e decide se va ottimizzato
+async function probeVideo(blob) {
+  if (!('VideoDecoder' in window) || !('VideoEncoder' in window) || !window.Mp4Muxer) return null;
+  const parsed = await readMp4Info(blob).catch(() => null);
+  if (!parsed) return null;
+  const track = parsed.info.videoTracks[0];
+  if (!track) return null;
+  const m = track.matrix || [65536, 0, 0, 0, 65536, 0, 0, 0, 0x40000000];
+  const rot = ((Math.round(Math.atan2(m[1], m[0]) * 180 / Math.PI / 90) * 90) % 360 + 360) % 360;
+  const cw = track.video.width, ch = track.video.height;
+  const side = rot === 90 || rot === 270;
+  const dw = side ? ch : cw, dh = side ? cw : ch;
+  const k = Math.min(1, OPT_LONG / Math.max(dw, dh), OPT_SHORT / Math.min(dw, dh));
+  const tw = Math.max(2, Math.round(dw * k / 2) * 2), th = Math.max(2, Math.round(dh * k / 2) * 2);
+  const vconfig = { codec: track.codec, codedWidth: cw, codedHeight: ch, description: codecDescription(parsed.file, track.id) };
+  try { if (!(await VideoDecoder.isConfigSupported(vconfig)).supported) return null; } catch { return null; }
+  return { parsed, track, rot, dw, dh, tw, th, vconfig, heavy: isHeavySize(dw, dh) };
+}
+
+function audioSpecificConfig(file, trackId) {
+  try {
+    const entry = file.getTrackById(trackId).mdia.minf.stbl.stsd.entries[0];
+    return entry.esds.esd.findDescriptor(4).findDescriptor(5).data;
+  } catch { return null; }
+}
+
+// Nei .MOV la configurazione AAC sta dentro un box 'wave' che mp4box non legge:
+// la si cerca direttamente nei byte del box 'moov' (box 'esds')
+function findEsdsDsi(moov) {
+  if (!moov) return null;
+  const b = new Uint8Array(moov);
+  for (let i = 4; i + 8 < b.length; i++) {
+    if (b[i] !== 0x65 || b[i + 1] !== 0x73 || b[i + 2] !== 0x64 || b[i + 3] !== 0x73) continue; // 'esds'
+    let p = i + 8; // tipo + versione/flag
+    const readLen = () => { let n = 0; for (let k = 0; k < 4; k++) { const c = b[p++]; n = (n << 7) | (c & 0x7f); if (!(c & 0x80)) break; } return n; };
+    if (b[p++] !== 0x03) continue;
+    readLen();
+    p += 2;
+    const fl = b[p++];
+    if (fl & 0x80) p += 2;
+    if (fl & 0x40) p += b[p] + 1;
+    if (fl & 0x20) p += 2;
+    if (b[p++] !== 0x04) continue;
+    readLen();
+    p += 13;
+    if (b[p++] !== 0x05) continue;
+    const len = readLen();
+    if (len > 0 && p + len <= b.length) return b.slice(p, p + len);
+  }
+  return null;
+}
+
+// Converte il video in Full HD; restituisce un Blob MP4 oppure null
+async function transcodeVideo(blob, info, { onProgress, canceled }) {
+  const { parsed, track, rot, tw, th, vconfig } = info;
+  const vs = parsed.file.getTrackSamplesInfo(track.id);
+  if (!vs || !vs.length) return null;
+  const vMin = Math.min(...vs.slice(0, 64).map(x => x.cts));
+  const durSec = Math.max(0.1, (Math.max(...vs.map(x => x.cts + x.duration)) - vMin) / vs[0].timescale);
+  const fps = clamp(Math.round(vs.length / durSec), 1, 60);
+
+  // audio: copia diretta se AAC; altri formati non sono gestiti (si usa l'originale)
+  const atrack = parsed.info.audioTracks[0];
+  let audio = null;
+  if (atrack) {
+    const dsi = audioSpecificConfig(parsed.file, atrack.id) || findEsdsDsi(parsed.moov);
+    if (!/^mp4a/.test(atrack.codec) || !dsi) return null;
+    const codec = /^mp4a\.40\.\d+$/.test(atrack.codec) ? atrack.codec : `mp4a.40.${(dsi[0] >> 3) || 2}`;
+    const as = parsed.file.getTrackSamplesInfo(atrack.id) || [];
+    const aMin = as.length ? Math.min(...as.slice(0, 16).map(x => x.cts)) : 0;
+    audio = { track: atrack, codec, dsi, samples: as, aMin, next: 0, metaSent: false };
+  }
+
+  const bitrate = clamp(Math.round(tw * th * fps * 0.2), 4e6, 20e6);
+  const ecfg = await pickVideoConfig(tw, th, fps, bitrate);
+  if (!ecfg) return null;
+
+  const store = new ChunkStore();
+  const muxer = new Mp4Muxer.Muxer({
+    target: new Mp4Muxer.StreamTarget({ onData: (d, pos) => store.write(d, pos), chunked: true }),
+    video: { codec: 'avc', width: tw, height: th, frameRate: fps },
+    audio: audio ? { codec: 'aac', numberOfChannels: audio.track.audio.channel_count, sampleRate: audio.track.audio.sample_rate } : undefined,
+    fastStart: false,
+    firstTimestampBehavior: 'offset',
+  });
+
+  const cvs = 'OffscreenCanvas' in window ? new OffscreenCanvas(tw, th) : Object.assign(document.createElement('canvas'), { width: tw, height: th });
+  const cx = cvs.getContext('2d');
+  cx.imageSmoothingQuality = 'high';
+
+  let err = null, encoded = 0;
+  const pending = [];
+  const enc = new VideoEncoder({ output: (c, meta) => muxer.addVideoChunk(c, meta), error: e => { err = e; } });
+  enc.configure(ecfg);
+  const dec = new VideoDecoder({ output: f => pending.push(f), error: e => { err = e; } });
+  dec.configure(vconfig);
+
+  // copia l'audio fino al secondo "untilUs"
+  const feedAudio = async untilUs => {
+    if (!audio) return;
+    const a = audio;
+    while (a.next < a.samples.length) {
+      const sm = a.samples[a.next];
+      const t = Math.round((sm.cts - a.aMin) / sm.timescale * 1e6);
+      if (t > untilUs) break;
+      const data = await blob.slice(sm.offset, sm.offset + sm.size).arrayBuffer();
+      const chunk = new EncodedAudioChunk({ type: 'key', timestamp: t, duration: Math.round(sm.duration / sm.timescale * 1e6), data });
+      muxer.addAudioChunk(chunk, a.metaSent ? undefined : {
+        decoderConfig: { codec: a.codec, sampleRate: a.track.audio.sample_rate, numberOfChannels: a.track.audio.channel_count, description: a.dsi },
+      });
+      a.metaSent = true;
+      a.next++;
+    }
+  };
+
+  const handleFrames = async () => {
+    while (pending.length) {
+      pending.sort((x, y) => x.timestamp - y.timestamp);
+      const f = pending.shift();
+      cx.fillStyle = '#000';
+      cx.fillRect(0, 0, tw, th);
+      if (rot) {
+        const sideways = rot === 90 || rot === 270;
+        cx.save();
+        cx.translate(tw / 2, th / 2);
+        cx.rotate(rot * Math.PI / 180);
+        const fw = sideways ? th : tw, fh = sideways ? tw : th;
+        cx.drawImage(f, -fw / 2, -fh / 2, fw, fh);
+        cx.restore();
+      } else {
+        cx.drawImage(f, 0, 0, tw, th);
+      }
+      const out = new VideoFrame(cvs, { timestamp: f.timestamp, duration: f.duration || Math.round(1e6 / fps) });
+      f.close();
+      enc.encode(out, { keyFrame: encoded % fps === 0 });
+      out.close();
+      encoded++;
+      await feedAudio(out.timestamp + 1e6);
+      while (enc.encodeQueueSize > 4) { if (err) throw err; await sleep(1); }
+    }
+  };
+
+  try {
+    let i = 0;
+    const t0 = performance.now();
+    while (i < vs.length) {
+      if (canceled()) return null;
+      if (err) throw err;
+      const batch = vs.slice(i, i + 6);
+      i += batch.length;
+      const datas = await Promise.all(batch.map(x => blob.slice(x.offset, x.offset + x.size).arrayBuffer()));
+      batch.forEach((x, j) => dec.decode(new EncodedVideoChunk({
+        type: x.is_sync ? 'key' : 'delta',
+        timestamp: Math.round((x.cts - vMin) / x.timescale * 1e6),
+        duration: Math.round(x.duration / x.timescale * 1e6),
+        data: datas[j],
+      })));
+      while (dec.decodeQueueSize > 3 && !err) { await handleFrames(); await sleep(1); }
+      await handleFrames();
+      onProgress?.(encoded / vs.length, (performance.now() - t0) / 1000);
+      await yieldUI();
+    }
+    await dec.flush();
+    await handleFrames();
+    await enc.flush();
+    await feedAudio(Infinity);
+    if (err) throw err;
+    if (canceled()) return null;
+    muxer.finalize();
+    return store.toBlob();
+  } finally {
+    for (const f of pending) f.close();
+    try { if (dec.state !== 'closed') dec.close(); } catch { /* ignore */ }
+    try { if (enc.state !== 'closed') enc.close(); } catch { /* ignore */ }
+  }
+}
+
+// Mostra la finestra di conversione; restituisce il nuovo File oppure null
+async function optimizeVideoFile(blob, name, info = null) {
+  info = info || await probeVideo(blob);
+  if (!info || !info.heavy) return null;
+  const dlg = $('#convDlg');
+  let skip = false;
+  $('#convSkip').onclick = () => { skip = true; $('#convStatus').textContent = 'Annullamento…'; };
+  dlg.oncancel = e => e.preventDefault();
+  $('#convInfo').textContent = `${name}`;
+  $('#convText').innerHTML = `È un video <b>${sizeLabel(info.dw, info.dh)}</b> (${info.dw}×${info.dh}). Lo converto una volta sola in <b>${info.tw}×${info.th}</b>: anteprima ed esportazione saranno molto più veloci e la qualità del video finale non cambia.`;
+  $('#convProgress').value = 0;
+  $('#convStatus').textContent = 'Avvio…';
+  dlg.showModal();
+  let out = null;
+  try {
+    out = await transcodeVideo(blob, info, {
+      canceled: () => skip,
+      onProgress: (p, secs) => {
+        $('#convProgress').value = p;
+        const eta = p > 0.03 ? Math.round(secs / p * (1 - p)) : null;
+        $('#convStatus').textContent = `Conversione… ${Math.round(p * 100)}%` + (eta != null ? ` · circa ${eta >= 60 ? `${Math.floor(eta / 60)} min ${eta % 60} s` : `${eta} s`} rimanenti` : '');
+      },
+    });
+  } catch (err) {
+    console.warn('Ottimizzazione non riuscita', err);
+    out = null;
+  }
+  dlg.close();
+  if (!out) {
+    if (!skip) toast(`Non è stato possibile ottimizzare "${name}": uso il video originale`, 6000);
+    return null;
+  }
+  const base = name.replace(/\.[^.]+$/, '');
+  return new File([out], `${base}.mp4`, { type: 'video/mp4' });
+}
+
+// Ottimizza video già presenti nel progetto (mantiene tagli e impostazioni)
+async function optimizeExistingClips(list) {
+  const groups = new Map();
+  for (const c of list) {
+    const key = c.fileId || c.url;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(c);
+  }
+  pause();
+  let done = 0;
+  const selId = selected && selected.kind === 'clip' ? selected.id : null;
+  let newSel = null;
+  for (const group of groups.values()) {
+    const c0 = group[0];
+    let blob = null;
+    if (c0.fileId) {
+      await pendingFiles.get(c0.fileId);
+      const rec = await idb('files', 'readonly', st => st.get(c0.fileId)).catch(() => null);
+      if (rec) blob = rec.blob;
+    }
+    if (!blob) blob = await (await fetch(c0.url)).blob();
+    const file = await optimizeVideoFile(blob, c0.name);
+    if (!file) continue;
+    const fid = storeFile(file);
+    for (const c of group) {
+      const idx = clips.indexOf(c);
+      if (idx < 0) continue;
+      const n = await createVideoClip(file.name, URL.createObjectURL(file), c.thumb);
+      Object.assign(n, { in: c.in, out: c.out, muted: c.muted, volume: c.volume, transition: c.transition, fit: c.fit, fileId: fid });
+      n.in = clamp(n.in, 0, n.srcDuration);
+      n.out = clamp(n.out, n.in + 0.1, n.srcDuration);
+      clips[idx] = n;
+      disposeMedia(c);
+      if (c.id === selId) newSel = n.id;
+    }
+    done++;
+    refresh();
+  }
+  if (newSel) select({ kind: 'clip', id: newSel }); else buildPanel();
+  if (done) toast(`${done} video ottimizzat${done === 1 ? 'o' : 'i'}`);
 }
 
 // Cede il controllo al browser senza i rallentamenti di setTimeout

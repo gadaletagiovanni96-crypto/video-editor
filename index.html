@@ -155,6 +155,17 @@
   </div>
   <div id="toast" class="toast" hidden></div>
 
+  <dialog id="convDlg" class="dialog">
+    <div class="dlg-head">
+      <div class="dlg-icon"><svg class="ic"><use href="#i-wand"/></svg></div>
+      <div><h2>Ottimizzazione del video</h2><p id="convInfo" class="muted"></p></div>
+    </div>
+    <p id="convText" class="ask-text"></p>
+    <progress id="convProgress" max="1" value="0"></progress>
+    <p id="convStatus" class="muted conv-status">Avvio…</p>
+    <div class="dlg-actions"><button id="convSkip" class="btn ghost">Salta (usa l'originale)</button></div>
+  </dialog>
+
   <dialog id="askDlg" class="dialog">
     <div class="dlg-head">
       <div class="dlg-icon"><svg class="ic"><use id="askIcon" href="#i-save"/></svg></div>

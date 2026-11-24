@@ -448,7 +448,7 @@ kbd {
 .dialog progress::-webkit-progress-bar { background: var(--surface-4); }
 .dialog progress::-webkit-progress-value { background: linear-gradient(90deg, var(--accent), #8b6dff); border-radius: 99px; transition: width .2s; }
 .dialog progress::-moz-progress-bar { background: linear-gradient(90deg, var(--accent), #8b6dff); border-radius: 99px; }
-#expStatus { margin: 10px 0 0; font-size: 12.5px; }
+#expStatus, .conv-status { margin: 10px 0 0; font-size: 12.5px; }
 .done-box { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: var(--radius); background: rgba(62, 207, 142, .1); border: 1px solid rgba(62, 207, 142, .3); }
 .done-box > .ic { width: 22px; height: 22px; color: var(--success); margin-top: 1px; }
 .done-box p { margin: 3px 0 0; font-size: 12.5px; word-break: break-all; }

@@ -12,11 +12,11 @@ In alternativa puoi pubblicarlo gratis con GitHub Pages (Settings → Pages → 
 
 L'editor si può installare come un normale programma: si apre dal menu delle applicazioni in una **finestra tutta sua**, senza schede, barre ed estensioni del browser (più leggero sui PC vecchi). Usa il motore di Chromium, quindi funziona esattamente come la versione nel browser.
 
-1. Scarica il pacchetto: [editor-video_1.1.0_all.deb](https://github.com/gadaletagiovanni96-crypto/video-editor/raw/refs/heads/claude/zealous-lamport-jrj0ky/dist/editor-video_1.1.0_all.deb)
+1. Scarica il pacchetto: [editor-video_1.2.0_all.deb](https://github.com/gadaletagiovanni96-crypto/video-editor/raw/refs/heads/claude/zealous-lamport-jrj0ky/dist/editor-video_1.2.0_all.deb)
 2. Apri il terminale nella cartella dove l'hai scaricato (di solito `Scaricati`) e installa:
    ```bash
    cd ~/Scaricati
-   sudo apt install ./editor-video_1.1.0_all.deb
+   sudo apt install ./editor-video_1.2.0_all.deb
    ```
    Se sul PC non ci sono né Chromium né Google Chrome, `apt` installa automaticamente Chromium.
 3. Apri **Editor Video** dal menu delle applicazioni (oppure scrivi `editor-video` nel terminale).
@@ -55,6 +55,13 @@ Così il progetto si può spostare, copiare su una chiavetta o tenere come backu
 | Esportare | **Esporta video** |
 
 Scorciatoie: `spazio` play/pausa · rotellina del mouse sulla timeline = scorri le clip (`Ctrl` + rotellina = zoom) · `Canc` elimina la clip selezionata · `←` `→` sposta il cursore · `Shift` + `←` `→` passa alla clip precedente/successiva.
+
+## Video pesanti (4K)
+
+Quando aggiungi un video più grande del Full HD (per esempio un 4K del telefono), l'editor lo **converte una volta sola in 1080p**: anteprima ed esportazione diventano molto più veloci e la qualità del video finale non cambia, perché il video esportato è comunque al massimo 1080p. L'audio viene copiato senza modifiche. Durante la conversione puoi premere *Salta* per usare l'originale.
+
+- La conversione si può disattivare in **Progetto** → *Video*.
+- I video 4K già presenti nel progetto si convertono con *Ottimizza* (nel pannello del video) o con *Ottimizza i video già inseriti* (in **Progetto**): tagli e impostazioni restano uguali.
 
 ## Salvataggio automatico
 
